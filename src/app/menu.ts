@@ -179,11 +179,11 @@ export abstract class MenuBase {
   draw(): void {
     const buffer = this.host.buffer();
     const fonts = this.host.fonts();
-    void buffer;
     for (let a = 0; a < this.items.length; a++) {
       const y =
         Math.trunc(buffer.height / 2) +
         (a - Math.trunc(this.items.length / 2)) * MENUTEXT_VERTSEPARATION;
+      this.items[a].beginDraw();
       this.items[a].draw(
         fonts,
         buffer,
@@ -231,6 +231,11 @@ export abstract class MenuItem {
 
   activate(): void {
     this.displaceCounter = 0;
+  }
+
+  /** `CGameMenuItem::Draw`'s leading `iDisplaceCounter++`. */
+  beginDraw(): void {
+    this.displaceCounter++;
   }
 
   abstract draw(
@@ -752,7 +757,6 @@ export class StringItem extends MenuItem {
     y: number,
     active: number,
   ): Rect {
-    this.displaceCounter++;
     const xadd = this.inputMode ? 0 : this.menuXDisplace(active);
     const yadd = this.inputMode ? 0 : this.menuYDisplace(active);
     let value = this.get();
@@ -828,7 +832,6 @@ export class ChangeKeyItem extends MenuItem {
     y: number,
     active: number,
   ): Rect {
-    this.displaceCounter++;
     if (this.text === null) return { left: 0, top: 0, right: 0, bottom: 0 };
     const value = this.keyInputMode ? KKeySelectionText : keyToStr(this.keys[this.index]);
     const light = active || this.notActiveItem;
