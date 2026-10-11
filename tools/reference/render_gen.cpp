@@ -141,6 +141,81 @@ static void RenderFontWrite(const char* dataDirIn, const char* outPath) {
 	printf("wrote %s\n", outPath);
 }
 
+// ---- fader oracle (CGraphicsFader::DrawPhase / DrawZoom) ----
+static void RenderFader(const char* outPath) {
+	const int W = 320, H = 200;
+	GfxBuffer src; src.Resize(W, H);
+	for (int i = 0; i < W * H; i++) src.iBuf[i] = (unsigned char)((i * 7) & 0x3f);
+	GfxBuffer dest; dest.Resize(W, H);
+
+	int iSine[256];
+	for (int a = 0; a < 256; a++) iSine[a] = (int)(255 * (sin((float)a / 256 * pi * 2)));
+
+	// DrawPhase(phase = 77)
+	{
+		const int phase = 77;
+		dest.Fill(0);
+		int l = (phase * 30) >> 8;
+		const unsigned char* srcptr = src.iBuf;
+		unsigned char* dstptr = dest.iBuf;
+		for (int y = 0; y < H; y++) {
+			int yfix = (l * iSine[(y + phase) & 0xff]) >> 8;
+			if (yfix + y < 0 || yfix + y >= H) memset(dstptr, 0, W);
+			else {
+				int yf = yfix * W;
+				for (int x = 0; x < W; x++) {
+					int xfix = x + ((l * iSine[(x + phase) & 0xff]) >> 8);
+					if (xfix > 0 && xfix < W) dstptr[x] = srcptr[xfix + yf];
+					else dstptr[x] = 0;
+				}
+			}
+			srcptr += W; dstptr += W;
+		}
+	}
+
+	// DrawZoom(mul = 0.6f)
+	GfxBuffer zoom; zoom.Resize(W, H);
+	{
+		float mul = 0.6f;
+		int dstw = W, dsth = H, srcw = W;
+		unsigned char* dstbuf = zoom.iBuf;
+		const unsigned char* srcbuf = src.iBuf;
+		float yoffs = (dsth * (1.0f - mul)) / 2.0f;
+		for (int y = 0; y < dsth; y++) {
+			float xoffs = (dstw * (1.0f - mul)) / 2.0f;
+			int iyo = (int)yoffs;
+			for (int x = 0; x < dstw; x++) {
+				int ixo = (int)xoffs;
+				(*dstbuf) = srcbuf[iyo * srcw + ixo];
+				xoffs += mul;
+				dstbuf++;
+			}
+			yoffs += mul;
+		}
+	}
+
+	FILE* out = fopen(outPath, "wb");
+	fwrite(dest.iBuf, 1, (size_t)W * H, out);
+	fwrite(zoom.iBuf, 1, (size_t)W * H, out);
+	fclose(out);
+	printf("wrote %s\n", outPath);
+}
+
+// ---- PCX oracle (CGraphicsBuffer::LoadPCX) ----
+static void RenderPcx(const char* fileIn, const char* outPath) {
+	GfxBuffer img; Palette pal;
+	if (!LoadPCX(fileIn, img, &pal)) return;
+	FILE* out = fopen(outPath, "wb");
+	unsigned int w = (unsigned int)img.Width(), h = (unsigned int)img.Height();
+	fwrite(&w, 4, 1, out); fwrite(&h, 4, 1, out);
+	fwrite(img.iBuf, 1, (size_t)w * h, out);
+	unsigned char palb[768];
+	pal.AppendPalette(palb);
+	fwrite(palb, 1, 768, out);
+	fclose(out);
+	printf("wrote %s\n", outPath);
+}
+
 // ---- message board oracle (CMessageBoard) ----
 static void RenderMessageBoard(const char* dataDirIn, const char* outPath) {
 	std::string dir(dataDirIn);
@@ -355,6 +430,14 @@ int main(int argc, char** argv) {
 	}
 	if (argc >= 4 && std::string(argv[1]) == "messageboard") {
 		RenderMessageBoard(argv[2], argv[3]);
+		return 0;
+	}
+	if (argc >= 4 && std::string(argv[1]) == "pcx") {
+		RenderPcx(argv[2], argv[3]);
+		return 0;
+	}
+	if (argc >= 3 && std::string(argv[1]) == "fader") {
+		RenderFader(argv[2]);
 		return 0;
 	}
 	if (argc >= 5 && std::string(argv[1]) == "hud") {

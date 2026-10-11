@@ -123,6 +123,31 @@ static bool LoadEFP(const char* fn, GfxBuffer& out, Palette* pal) {
 	return true;
 }
 
+// ---- PCX loading (CGraphicsBuffer::LoadPCX) ----
+static bool LoadPCX(const char* fn, GfxBuffer& out, Palette* pal) {
+	FILE* f = fopen(fn, "rb");
+	if (!f) { fprintf(stderr, "cannot open %s\n", fn); return false; }
+	fseek(f, 8, SEEK_SET);
+	int w = fgetc(f); w += fgetc(f) << 8; w += 1;
+	int h = fgetc(f); h += fgetc(f) << 8; h += 1;
+	out.Resize(w, h);
+	fseek(f, 128, SEEK_SET);
+	for (unsigned int p = 0; p < (unsigned)w * h;) {
+		int tavu = fgetc(f);
+		if (tavu > 192) { int t2 = fgetc(f); for (; tavu > 192; tavu--) out.iBuf[p++] = (char)t2; }
+		else out.iBuf[p++] = (char)tavu;
+	}
+	if (pal) {
+		fseek(f, -256 * 3, SEEK_END);
+		for (int a = 0; a < 256; a++) {
+			int r = fgetc(f), g = fgetc(f), b = fgetc(f);
+			pal->c[a].r = (unsigned char)r; pal->c[a].g = (unsigned char)g; pal->c[a].b = (unsigned char)b;
+		}
+	}
+	fclose(f);
+	return true;
+}
+
 // ---- CGraphicsGenerator ----
 static void ZoomBlock(GfxBuffer& aSrc, GfxBuffer& aDst, int aX, int aY, int aAdd) {
 	int a, b, c, d, size;

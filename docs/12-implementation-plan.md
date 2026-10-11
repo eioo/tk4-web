@@ -158,6 +158,22 @@ select; level info; shop; statistics; victory; in-game quit.
 → menu, with money/weapons persisting across levels.
 ⚠️ Matching menu layout/text against reference screenshots.
 
+**Sub-stages:**
+
+- **M6a — app shell.** `CState`/`CGameState` machine, `CGUIEffectData` fades
+  (`CGraphicsFader`), the two logo screens, `CGameMenuContainer`/`CGameMenuBase`/
+  `CGameMenuItem` and the menu item types, PCX + menu-sprite loading, and the main
+  menu / options / episode-select menu trees.
+- **M6b — level flow.** `CGameSubStateNextLevel`/`LevelInfo`/`OnGoing`/`Quit`,
+  episode manifest, `CDynGameData` (players, levels, money/weapons), level-name
+  reading, and reaching the existing simulation through the state machine.
+- **M6c — economy/progress.** `CGameSubStateShop`/`Statistics`/`Victory`, the
+  statistics view, shopping, and episode → episode progression to victory.
+
+**Status:** M6a foundations landed: `src/data/pcx.ts` (`CGraphicsBuffer::LoadPCX`,
+byte-exact vs. `render_gen pcx`) and `src/render/fader.ts` (`CGraphicsFader::DrawPhase`
+/ `DrawZoom` / fades, byte-exact vs. `render_gen fader`).
+
 ---
 
 ## M7 — Audio

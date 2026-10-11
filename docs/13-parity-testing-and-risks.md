@@ -36,7 +36,10 @@ near-verbatim and need only libm (build them all with `bun run reference`):
   hit flash, target laser, energy, weapon/ammo text, frag list, crate texts, minimap, FPS,
   timer, "mission completed" — composed for a synthetic player) and
   `render_gen messageboard <datadir> <out.raw>` (the `CMessageBoard` ring/truncation rules and
-  the `Draw` blit at draw offset 16). `SimFont`/`SimFontWrite` (a verbatim `CFonts` copy) live
+  the `Draw` blit at draw offset 16), `render_gen pcx <file> <out.raw>`
+  (`CGraphicsBuffer::LoadPCX`: width/height + decoded indices + trailing palette) and
+  `render_gen fader <out.raw>` (`CGraphicsFader::DrawPhase` and `DrawZoom` on a
+  deterministic buffer). `SimFont`/`SimFontWrite` (a verbatim `CFonts` copy) live
   in `simreference.h`.
 - `tools/reference/simreference.h` + `tools/reference/sim_gen.cpp` — the **simulation**:
   `CMath`, glibc `rand()`, the weapon/bullet/effect/body-part/enemy tables, `CCharacter::Move`,
