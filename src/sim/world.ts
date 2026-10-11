@@ -151,6 +151,8 @@ export class SimPlayer {
   cash = 0;
   targetSystem = false;
   local = true;
+  /** `CPlayer::iColor` — `KPlayerColor[i]`, used for the minimap dot. */
+  color = 16 * 3;
 
   spriteAngle(): number {
     return Math.trunc(this.angle / 4.5);

@@ -30,7 +30,12 @@ near-verbatim and need only libm (build them all with `bun run reference`):
   It also emits the light oracle: `render_gen lightmap <out.raw>` writes the ten
   `CLightMap` strength maps (`15 + a*5`), and `render_gen lightrender <palette.tab> <out.raw>`
   applies eight synthetic lights (all four light tables, sizes 0..9, edge clipping) to a
-  deterministic buffer.
+  deterministic buffer. The font/HUD oracle is `render_gen fontwrite <datadir> <out.raw>`
+  (a fixed set of strings through `CFonts::Write`, both fonts, all alignments + scaling) and
+  `render_gen hud <leveldump> <datadir> <out.raw>` (the `CGameDrawManager` HUD primitives —
+  hit flash, target laser, energy, weapon/ammo text, frag list, crate texts, minimap, FPS,
+  timer, "mission completed" — composed for a synthetic player). `SimFont`/`SimFontWrite`
+  (a verbatim `CFonts` copy) live in `simreference.h`.
 - `tools/reference/simreference.h` + `tools/reference/sim_gen.cpp` — the **simulation**:
   `CMath`, glibc `rand()`, the weapon/bullet/effect/body-part/enemy tables, `CCharacter::Move`,
   `CPlayer` (input, movement, shooting, damage), `CEnemy` (AI, shooting), `CEffect` (roll),
@@ -46,9 +51,9 @@ The TypeScript tests hash the port's output and compare against the oracle's out
 (`sha256` over the pixel buffer / trace), giving byte-exact verification without a
 screenshot workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors`, the
 static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`,
-the ten light maps and `CGameDrawer::DrawLight`, and a 400-tick
-player/bullet/enemy/effect replay. The full reference build is still needed
-for audio and menu parity.
+the ten light maps and `CGameDrawer::DrawLight`, the `CFonts` font writer and the HUD
+primitives, and a 400-tick player/bullet/enemy/effect replay. The full reference build is
+still needed for audio and menu parity.
 
 ## Determinism
 

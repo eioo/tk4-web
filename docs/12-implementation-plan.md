@@ -116,15 +116,29 @@ board, fonts, split-screen draw rects.
 (allowing for documented non-determinism).
 ⚠️ Per-pixel light math and the 10 light-map sizes.
 
-**Status:** lights done; HUD/fonts pending. Pulled forward from M5 because the
-flamethrower's gas bullets have no sprite — their entire visual is a light. Added
+**Status:** lights **and HUD/fonts** done; message board and split-screen draw
+rects pending. Lights were pulled forward because the flamethrower's gas
+bullets have no sprite — their entire visual is a light. Added
 `src/data/light-map.ts` (`CLightMap::Make`) and `GameDrawer.drawLight`
-(`CGameDrawer::DrawLight`) plus the light tables from `palette.tab`. `drawBullets`,
-`drawEffects` and `drawCrates` now emit their lights, and `drawFireLights` (player/enemy
-muzzle flashes) and `drawSpots` (animated level spots) are wired into `drawFrame` in the
-original order. Byte-exact against new oracle modes (`render_gen lightmap` /
-`lightrender`); see `src/data/__test__/light-map.test.ts` and
-`src/render/__test__/light.test.ts`. `DrawSpots` uses a separate render RNG (doc 13).
+(`CGameDrawer::DrawLight`) plus the light tables from `palette.tab`.
+`drawBullets`, `drawEffects` and `drawCrates` now emit their lights, and
+`drawFireLights` (player/enemy muzzle flashes) and `drawSpots` (animated level
+spots) are wired into `drawFrame` in the original order. Byte-exact against new
+oracle modes (`render_gen lightmap` / `lightrender`); see
+`src/data/__test__/light-map.test.ts` and `src/render/__test__/light.test.ts`.
+`DrawSpots` uses a separate render RNG (doc 13).
+
+HUD/fonts: `src/data/font.ts` gained `fontWrite` (a full `CFonts::Write` port
+with `iOneIsZero`, scaling and all alignments) and `src/render/hud.ts` the HUD
+primitives — hit flash, target laser + cross-hair (`DrawTargets`/`DrawTarget`,
+using `CLevel::VisibilityCheck`), energy bar, weapon/ammo text, crate pickup
+text, frag list, minimap, FPS, timer and the rotating "mission completed"
+banner. `drawFrame` now calls `drawHudFrame` after the walls, mirroring
+`CGameDrawManager::DrawFrame`'s post-wall order, and the browser shows the
+timer/energy/ammo HUD. Byte-exact against `render_gen fontwrite` / `render_gen
+hud` on level1; see `src/data/__test__/font-write.test.ts` and
+`src/render/__test__/hud.test.ts`. The per-player HUD assumes one local player
+(no split-screen yet); the message board is still to come.
 
 ---
 

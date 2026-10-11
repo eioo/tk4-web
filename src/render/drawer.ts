@@ -386,6 +386,17 @@ export class GameDrawer {
     }
   }
 
+  /** `CGameDrawer::DrawMapPixel` — a `size × size` (1 or 2) minimap dot. */
+  drawMapPixel(offset: number, size: number, color: number, fb: Framebuffer): void {
+    const shadow = this.tables.shadow;
+    for (let a = 0; a < size; a++) {
+      for (let b = 0; b < size; b++) {
+        const i = offset + a * fb.width + b;
+        fb.pixels[i] = color >= 0 ? color : shadow[fb.pixels[i] * 16 + 15];
+      }
+    }
+  }
+
   /** `CGameDrawer::DrawRocket` — a 2px-wide trail stepping 1px per iteration. */
   drawRocket(
     x: number,

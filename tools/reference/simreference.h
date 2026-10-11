@@ -290,11 +290,15 @@ struct SimCrate {
 	float textCounter = 0, textCounter2 = 0; int textAngle = 0; CoordF textPos; int wakeUpCounter = 0;
 };
 
-// ---- small font (CFonts::Length) for crate pickup text ----
+// ---- small font (CFonts::Length / Write) ----
 struct SimFont {
 	int w = 0, h = 0;
+	int iScaleX = 1, iScaleY = 1;
+	bool oneIsZero = false;
 	std::vector<unsigned char> glyphs;
-	bool Load(const char* path) {
+	int Width() const { return w * iScaleX; }
+	int Height() const { return h * iScaleY; }
+	bool Load(const char* path, bool aOneIsZero = false) {
 		FILE* f = fopen(path, "rb");
 		if (!f) return false;
 		int a = fgetc(f); int b = fgetc(f);
@@ -303,6 +307,7 @@ struct SimFont {
 		fseek(f, 512, SEEK_SET);
 		size_t rd = fread(glyphs.data(), 1, glyphs.size(), f);
 		fclose(f);
+		oneIsZero = aOneIsZero;
 		return rd == glyphs.size();
 	}
 	int Length(const char* s) const {
@@ -325,9 +330,58 @@ struct SimFont {
 			if (xpos1 > xpos2) { xpos1 = 0; xpos2 = w / 2; }
 			length += (xpos2 - xpos1) + 1;
 		}
-		return length;
+		return length * iScaleX;
 	}
 };
+
+// CFonts::Write — near-verbatim. Vertical align 0=below,1=middle,2=above;
+// horizontal 0=right,1=middle,2=left.
+static RectI SimFontWrite(const SimFont& f, int aX, int aY, const unsigned char* aStr,
+	int aVAlign, int aHAlign, GfxBuffer* aTarget) {
+	int a, c, d, xpos1, xpos2, col, textcnt = 0, fsize = f.w * f.h;
+	int maxX = aX, maxY = aY;
+	RectI empty; empty.l = 0; empty.t = 0; empty.r = 0; empty.b = 0;
+	if (aStr[0] == 0) return empty;
+	if (aVAlign == 1) aY -= f.Height() / 2;
+	else if (aVAlign == 2) aY -= f.Height();
+	if (aHAlign == 1) aX -= f.Length((const char*)aStr) / 2;
+	else if (aHAlign == 2) aX -= f.Length((const char*)aStr);
+	for (a = 0; aStr[a] != 0; a++) {
+		c = 0; col = 0;
+		while (col == 0 && c < f.w) {
+			for (d = 0; d < f.h; d++) if (f.glyphs[(size_t)aStr[a] * fsize + d * f.w + c] != 0) col = 1;
+			if (col == 0) c++;
+		}
+		xpos1 = c;
+		c = f.w; col = 0;
+		while (col == 0 && c > 0) {
+			for (d = 0; d < f.h; d++) if (f.glyphs[(size_t)aStr[a] * fsize + d * f.w + (c - 1)] != 0) col = 1;
+			if (col == 0) c--;
+		}
+		xpos2 = c;
+		if (xpos1 > xpos2) { xpos1 = 0; xpos2 = f.w / 2; }
+		for (d = 0; d < f.h * f.iScaleY; d += f.iScaleY)
+			for (c = xpos1; c < xpos2; c++)
+				if (f.glyphs[(size_t)aStr[a] * fsize + (d / f.iScaleY * f.w) + c] != 0)
+					if ((d + aY) < aTarget->Height() && (d + aY) >= 0 &&
+						(c - xpos1) + aX + textcnt < aTarget->Width() &&
+						(c - xpos1) + aX + textcnt >= 0) {
+						char pixel = (char)f.glyphs[(size_t)aStr[a] * fsize + (d / f.iScaleY * f.w) + c];
+						if (pixel == 1 && f.oneIsZero) pixel = 0;
+						for (int subX = 0; subX < f.iScaleX; ++subX)
+							for (int subY = 0; subY < f.iScaleY; ++subY) {
+								int tx = (c - xpos1) * f.iScaleX + aX + textcnt + subX;
+								int ty = d + aY + subY;
+								if (tx >= 0 && tx < aTarget->Width() && ty >= 0 && ty < aTarget->Height())
+									aTarget->iBuf[ty * aTarget->Width() + tx] = pixel;
+							}
+						if ((c - xpos1) * f.iScaleX + aX + textcnt > maxX) maxX = (c - xpos1) * f.iScaleX + aX + textcnt;
+						if (d + aY > maxY) maxY = d + aY;
+					}
+		textcnt += (xpos2 - xpos1) * f.iScaleX;
+	}
+	RectI r; r.l = aX; r.t = aY; r.r = maxX + 1; r.b = maxY + 1; return r;
+}
 
 // ---- simulation state ----
 struct SimInput { unsigned int keys = 0; int mouseXRel = 0; unsigned int mouseButtons = 0; };

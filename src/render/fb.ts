@@ -45,6 +45,21 @@ export class Framebuffer {
   }
 
   /**
+   * `CGraphicsBuffer::Rectangle` — draws a one-pixel outline. `x1 <= x2`,
+   * `y1 <= y2` are assumed (as in the original). Returns nothing.
+   */
+  rectangle(x1: number, y1: number, x2: number, y2: number, color: number): void {
+    const w = this.width;
+    const offs1 = y1 * w + x1;
+    const offs2 = y1 * w + x2;
+    const offs3 = y2 * w + x1;
+    this.pixels.fill(color, offs1, offs1 + (x2 - x1) + 1);
+    this.pixels.fill(color, offs3, offs3 + (x2 - x1) + 1);
+    for (let a = 0, offs = offs1 + w; a < y2 - y1 - 1; a++, offs += w) this.pixels[offs] = color;
+    for (let a = 0, offs = offs2 + w; a < y2 - y1 - 1; a++, offs += w) this.pixels[offs] = color;
+  }
+
+  /**
    * Converts the index buffer to RGBA bytes using `palette`. `out` may be
    * reused between frames; it must be `width * height * 4` bytes.
    */

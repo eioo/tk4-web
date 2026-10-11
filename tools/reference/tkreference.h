@@ -417,7 +417,9 @@ struct RectI { int l = 0, t = 0, r = 0, b = 0; };
 struct Assets {
 	GfxBuffer floor, floor2, wall2, wallClr;
 	GfxBuffer walls[6];
+	GfxBuffer crate, target;                    // HUD sprites (efps/crates.efp, efps/target.efp)
 	const unsigned char* shadowTable = nullptr; // 256*16
+	const unsigned char* transparency = nullptr; // 256*256
 };
 
 static RectI ClipRect(int aX, int aY, int aBlockXSize, int aBlockYSize, const RectI& aDrawRect) {
@@ -1035,6 +1037,8 @@ static bool LoadAssets(const std::string& dir, Assets& a, Palette& pal) {
 	if (!LoadEFP((dir + "/efps/walls1.efp").c_str(), a.walls[0], &pal)) return false;
 	if (!LoadEFP((dir + "/efps/floor1.efp").c_str(), a.floor, NULL)) return false;
 	if (!LoadEFP((dir + "/efps/polycolr.efp").c_str(), a.wallClr, NULL)) return false;
+	if (!LoadEFP((dir + "/efps/crates.efp").c_str(), a.crate, NULL)) return false;
+	if (!LoadEFP((dir + "/efps/target.efp").c_str(), a.target, NULL)) return false;
 	MakeFloors(pal, a.floor, a.floor2);
 	MakeFloors(pal, a.walls[0], a.wall2);
 	ZoomWall(a.walls[0], a.walls[1], 0);
@@ -1042,13 +1046,49 @@ static bool LoadAssets(const std::string& dir, Assets& a, Palette& pal) {
 	ZoomWall(a.walls[0], a.walls[3], 2);
 	ZoomWall(a.walls[0], a.walls[4], 3);
 	ZoomWall(a.walls[0], a.walls[5], 4);
-	// shadow table from palette.tab
+	// shadow + transparency tables from palette.tab
 	FILE* f = fopen((dir + "/palette.tab").c_str(), "rb");
 	if (!f) { fprintf(stderr, "cannot open palette.tab\n"); return false; }
 	unsigned char* tab = (unsigned char*)malloc(86016);
 	size_t rd = fread(tab, 1, 86016, f); (void)rd; fclose(f);
+	a.transparency = tab;
 	a.shadowTable = tab + 65536;
 	return true;
+}
+
+// ---- CGraphicsBuffer::Rectangle / CGameDrawer::DrawMapPixel ----
+static void SimRectangle(GfxBuffer* b, int aX1, int aY1, int aX2, int aY2, unsigned char aCol) {
+	int a, offs, offs1, offs2, offs3, w = b->Width();
+	offs1 = aY1 * w + aX1;
+	offs2 = aY1 * w + aX2;
+	offs3 = aY2 * w + aX1;
+	memset(b->iBuf + offs1, aCol, (aX2 - aX1) + 1);
+	memset(b->iBuf + offs3, aCol, (aX2 - aX1) + 1);
+	for (a = 0, offs = offs1 + w; a < (aY2 - aY1) - 1; a++, offs += w) b->iBuf[offs] = aCol;
+	for (a = 0, offs = offs2 + w; a < (aY2 - aY1) - 1; a++, offs += w) b->iBuf[offs] = aCol;
+}
+
+static void SimDrawMapPixel(GfxBuffer* b, const unsigned char* shadowTable, int aOffset, int aSize, int aColor) {
+	for (int a = 0; a < aSize; a++)
+		for (int bb = 0; bb < aSize; bb++) {
+			int i = aOffset + a * b->Width() + bb;
+			if (aColor >= 0) b->iBuf[i] = (unsigned char)aColor;
+			else b->iBuf[i] = shadowTable[b->iBuf[i] * 16 + 15];
+		}
+}
+
+// ---- CGameDrawer::DrawTransSprite (transparency table) ----
+static void DrawTransSprite(int aX, int aY, int aXS, int aYS, const GfxBuffer* aSprite, int aOffset,
+	GfxBuffer* aDrawBuffer, const unsigned char* transparency, const RectI& aDrawRect) {
+	RectI clip = ClipRect(aX, aY, aXS, aYS, aDrawRect);
+	if (!RectValid(clip)) return;
+	int sprOfs = aOffset + clip.l + clip.t * aSprite->Width();
+	unsigned char* dbuf = aDrawBuffer->iBuf + (aY + clip.t) * aDrawBuffer->Width() + aX + clip.l;
+	for (int a = 0; a < RectH(clip); a++, dbuf += aDrawBuffer->Width(), sprOfs += aSprite->Width())
+		for (int b = 0; b < RectW(clip); b++) {
+			unsigned char colo = aSprite->iBuf[sprOfs + b];
+			if (colo != 0) dbuf[b] = transparency[colo * 256 + dbuf[b]];
+		}
 }
 
 #endif

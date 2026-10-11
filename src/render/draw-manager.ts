@@ -37,6 +37,19 @@ import {
 import type { SimBullet, SimPlayer } from "../sim/world";
 import type { DrawSprites, GameDrawer, SpriteView } from "./drawer";
 import type { Framebuffer } from "./fb";
+import {
+  drawComplete,
+  drawCrateTexts,
+  drawEnergies,
+  drawFps,
+  drawHits,
+  drawInfos,
+  drawKills,
+  drawMap,
+  drawTargets,
+  drawTime,
+  type HudContext,
+} from "./hud";
 import { idiv, rectHeight, rectWidth, type Point, type Rect } from "./rect";
 
 const f32 = Math.fround;
@@ -988,12 +1001,16 @@ export interface ActorScene extends StaticScene {
   crates: SimCrate[];
   /** Level spot lights (`CLevel::iSpotLights`). */
   spotLights: SpotLight[];
+  /** Dead enemy positions (`CLevelRuntimeData::DeadEnemies`), for the minimap. */
+  deadEnemies: Point[];
   /**
    * Render-side RNG. The original shares one `rand()` stream between the
    * simulation and `DrawSpots`, so its spot flicker depends on frame timing;
    * the port keeps a separate stream so the simulation stays deterministic.
    */
   renderRng: GlibcRandom;
+  /** HUD state; when present `drawFrame` draws the HUD after the walls. */
+  hud?: HudContext;
 }
 
 /** `CGameDrawManager::ChkForDraw`. `screenHeight` is the video height. */
@@ -1385,10 +1402,36 @@ export function drawSpots(scene: ActorScene, screenHeight: number): void {
 }
 
 /**
+ * The HUD portion of `CGameDrawManager::DrawFrame` (everything the original
+ * draws after the walls, inside and after the local-player loop).
+ */
+export function drawHudFrame(scene: ActorScene): void {
+  const hud = scene.hud;
+  if (!hud) return;
+  const { level, drawer, fb, drawRect, screenPos, sprites, players, enemies, crates, deadEnemies } =
+    scene;
+
+  for (const plr of players) {
+    if (!plr.local) continue;
+    drawHits(fb, plr, drawRect);
+    drawTargets(level, sprites, drawer, fb, drawRect, screenPos, plr);
+    drawEnergies(fb, plr, drawRect);
+    drawInfos(fb, plr, drawRect, hud);
+  }
+
+  if (hud.frags) drawKills(fb, hud);
+  drawCrateTexts(fb, crates, hud);
+  if (hud.showMap) drawMap(level, drawer, fb, enemies, deadEnemies, players, hud);
+  if (hud.drawFrames) drawFps(fb, hud);
+  if (hud.actionTimeMatters) hud.completeTime = drawTime(fb, hud);
+  if (hud.nextLevel) drawComplete(fb, hud);
+}
+
+/**
  * Composes a full in-game frame in the original `DrawFrame` order: floor,
  * dead players, low effects, body parts, character shadows, crates, bullets,
  * live enemies, players, fire lights, block shadows, high effects, spot
- * lights, camera cone and walls. (HUD arrives in M5.)
+ * lights, camera cone and walls — then the HUD (when `scene.hud` is set).
  */
 export function drawFrame(scene: ActorScene, screenHeight: number): void {
   const { level, drawer, fb, dark, drawRect, screenPos, effects } = scene;
@@ -1407,4 +1450,5 @@ export function drawFrame(scene: ActorScene, screenHeight: number): void {
   drawSpots(scene, screenHeight);
   drawBlackPartsOfLevel(scene);
   drawWalls(scene);
+  drawHudFrame(scene);
 }

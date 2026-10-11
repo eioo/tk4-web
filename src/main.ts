@@ -78,16 +78,18 @@ async function boot(): Promise<void> {
   window.addEventListener("resize", () => presenter.fit());
   root.appendChild(presenter.canvas);
 
-  const [cfgText, paletteTabBytes, levelBytes, fontBytes] = await Promise.all([
+  const [cfgText, paletteTabBytes, levelBytes, menuFontBytes, hudFontBytes] = await Promise.all([
     loadText("default.ini"),
     loadBytes("palette.tab"),
     loadBytes(LEVEL_PATH),
     loadBytes("fnts/menu15x18dark.fnt"),
+    loadBytes("fnts/8x8b.fnt"),
   ]);
   const level = loadLevel(levelBytes);
   const ingame = await loadIngameData(mergeIni(cfgText), loadBytes);
   const sprites = toDrawSprites(ingame);
-  const font = decodeFnt(fontBytes);
+  const font = decodeFnt(menuFontBytes);
+  const hudFont = decodeFnt(hudFontBytes);
 
   const fb = new Framebuffer(WIDTH, HEIGHT);
   const dark = new Uint8Array(WIDTH * HEIGHT);
@@ -97,6 +99,9 @@ async function boot(): Promise<void> {
   const start = level.starts[0] ?? { x: level.width >> 1, y: level.height >> 1 };
   const seed = (Date.now() / 1000) >>> 0;
   const world = new SimWorld(level, seed);
+  // HUD timers (`TimerCounter` / `iCompleteTime`).
+  let timerCounter = 0;
+  const completeTime = 0;
   // Separate render RNG for `DrawSpots` (see `ActorScene.renderRng`).
   const renderRng = new GlibcRandom(seed);
   world.mouseOwner = 0;
@@ -173,6 +178,7 @@ async function boot(): Promise<void> {
       const input: SimInput = { keys: keyMask(held), mouseXRel: mouseDX, mouseButtons: buttons };
       mouseDX = 0;
       world.tick(input, drawRect);
+      timerCounter++;
     },
     render: () => {
       fb.clear(0);
@@ -194,7 +200,31 @@ async function boot(): Promise<void> {
           effects: world.effects,
           crates: world.crates,
           spotLights: level.spotLights,
+          deadEnemies: world.deadEnemies,
           renderRng,
+          hud: {
+            font: hudFont,
+            oneIsZero: true,
+            scaleX: 1,
+            scaleY: 1,
+            videoWidth: WIDTH,
+            videoHeight: HEIGHT,
+            frags: false,
+            showMap: false,
+            drawFrames: false,
+            actionTimeMatters: true,
+            currentFps: 0,
+            nextLevel: 0,
+            completeTime,
+            startTime: 0,
+            timerCounter,
+            timeLimit: level.general.timeLimit,
+            hidePlayersFromMap: false,
+            drawEnemiesOnMap: true,
+            reachableOnMap: false,
+            names: ["Player"],
+            kills: [0],
+          },
         },
         HEIGHT,
       );
