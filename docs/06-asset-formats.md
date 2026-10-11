@@ -54,16 +54,19 @@ Any other extension is loaded via SDL_image; only 8-bit surfaces are accepted.
 `CFonts::Load`:
 
 ```
-offset 0 : width  (uint8)
-offset 1 : height (uint8)
-offset 2 : 256 × 2 bytes table (ignored by loader — skipped)
-offset 514: 256 glyphs, each width*height bytes (indexed)
+offset 0   : width  (uint8)
+offset 1   : height (uint8)
+offset 512 : 256 glyphs, each width*height bytes (indexed)
 ```
 
-Total size `2 + 512 + 256*w*h`. Measured: `8x8b` → `8×8` (16896 B), `menu15x18` →
-`25×30` (69632 B)? Note: the filename reflects the *visual* cell; the loader uses the
-stored header bytes (e.g. `menu25x30light.fnt` header = `0x19,0x1e` = 25×30). Glyph
-rendering (`CFonts::Write`):
+The loader reads the two header bytes, then `fseek(fnt, 256*2, SEEK_SET)` seeks to
+**absolute** offset 512, then reads `256*width*height` glyph bytes. So the total file
+size is `512 + 256*width*height` (the 510 bytes between the header and the glyphs are
+skipped, not a separate 512-byte table). Measured: `8x8b` → 8×8 (16896 B),
+`menu15x18*` → 15×18 (69632 B), `menu25x30*` → 25×30 (192512 B), `snumbers` → 3×5
+(4352 B).
+
+Glyph rendering (`CFonts::Write`):
 
 - Each glyph is trimmed to its non-zero left/right extent; blank glyph → advance
   `width/2`.

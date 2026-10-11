@@ -13,6 +13,7 @@
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
+    "assets": "bun run tools/build-assets.ts",
     "test": "bun test"
   },
   "devDependencies": {
