@@ -86,12 +86,12 @@ async function boot(): Promise<void> {
     },
   });
   loop.start();
-  (window as unknown as Record<string, unknown>).tk4Ready = true;
+  window.tk4Ready = true;
 }
 
 boot().catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
-  (window as unknown as Record<string, unknown>).tk4Error = message;
+  window.tk4Error = message;
   const root = document.getElementById("app");
   if (root) {
     root.innerHTML = `<pre style="color:#f66;font:14px/1.5 monospace;padding:16px;white-space:pre-wrap">Boot failed: ${message}</pre>`;
