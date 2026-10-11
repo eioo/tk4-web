@@ -153,6 +153,7 @@ export class App implements MenuHost {
   private levelBytes = new Map<number, Uint8Array>();
   private levelData = new Map<number, Level>();
   private session: GameSession | null = null;
+  private userQuit = false;
 
   private logoStart = 0;
   private ongoingShowMap = false;
@@ -360,7 +361,13 @@ export class App implements MenuHost {
   }
 
   private restoreState(): void {
-    if (this.savedState) this.setState(this.savedState.main, this.savedState.sub);
+    // `CGameState::RestoreState` only restores the saved state; it does **not**
+    // re-enter the sub-state, so an in-progress level continues uninterrupted.
+    if (!this.savedState) return;
+    this.mainState = this.savedState.main;
+    this.gameState = this.savedState.sub as GameState;
+    this.palette = this.defaultPalette(this.mainState, this.gameState);
+    this.stateChanged = false;
   }
 
   private first(): boolean {
@@ -472,6 +479,9 @@ export class App implements MenuHost {
         this.drawGame();
         break;
       case MainState.Quit:
+        // `CGUIStateQuit` draws over the last frame; approximate it with the
+        // menu background underneath the confirmation box.
+        this.fb.pixels.set(this.menuData.sprites.menuBackground.pixels);
         this.drawQuitMenu();
         break;
       default:
@@ -550,6 +560,7 @@ export class App implements MenuHost {
       return;
     }
     this.currentLevel = startLevel;
+    this.userQuit = false;
     this.levelBytes.clear();
     this.levelData.clear();
     const files = epi.levels.map((l) => l.file);
@@ -687,7 +698,7 @@ export class App implements MenuHost {
       this.startZoomOut(MainState.Game, GameState.Statistics);
       return;
     }
-    if (session.nextLevel >= KLevelCompleteDelay) {
+    if (session.nextLevel >= KLevelCompleteDelay || this.userQuit) {
       this.startFadeOut(MainState.Game, GameState.Statistics);
     }
   }
@@ -703,6 +714,11 @@ export class App implements MenuHost {
       this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
     }
     if (!this.nextKey()) return;
+    if (this.userQuit) {
+      this.userQuit = false;
+      this.startFadeOut(MainState.Menu, 0);
+      return;
+    }
     if (this.currentLevel >= this.levelsInEpisode) {
       this.startFadeOut(MainState.Game, GameState.Victory);
     } else {
@@ -725,7 +741,12 @@ export class App implements MenuHost {
       return;
     }
     this.restoreState();
-    if (this.gameState !== GameState.OnGoing) this.startFadeOut(MainState.Menu, 0);
+    if (this.gameState !== GameState.OnGoing) {
+      this.startFadeOut(MainState.Menu, 0);
+    } else {
+      // `CDynGameData::iUserQuit` — the ongoing state then rolls to statistics.
+      this.userQuit = true;
+    }
   }
 
   private drawGameQuit(): void {
@@ -784,6 +805,7 @@ export class App implements MenuHost {
         this.fb.pixels.set(this.menuData.sprites.victoryScreen.pixels);
         break;
       case GameState.Quit:
+        this.session?.draw();
         this.drawGameQuit();
         break;
       case GameState.Statistics:
@@ -985,6 +1007,7 @@ export class App implements MenuHost {
         }
         case "Escape":
           if (document.pointerLockElement === this.canvas) void document.exitPointerLock();
+          this.setStateAndSave(MainState.Game, GameState.Quit);
           break;
         default:
           break;
