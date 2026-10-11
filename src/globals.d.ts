@@ -28,4 +28,6 @@ interface Window {
   };
   /** Dev-only: give the local player a weapon (and ammo) and equip it. */
   tk4Give?: (weapon: number, ammo?: number) => void;
+  /** Dev-only: post a transient message to the on-screen message board. */
+  tk4Msg?: (message: string) => void;
 }

@@ -141,6 +141,49 @@ static void RenderFontWrite(const char* dataDirIn, const char* outPath) {
 	printf("wrote %s\n", outPath);
 }
 
+// ---- message board oracle (CMessageBoard) ----
+static void RenderMessageBoard(const char* dataDirIn, const char* outPath) {
+	std::string dir(dataDirIn);
+	SimFont f;
+	if (!f.Load((dir + "/fnts/8x8b.fnt").c_str(), true)) return;
+
+	const int W = 320, H = 96;
+	GfxBuffer draw; draw.Resize(W, H);
+	for (int i = 0; i < W * H; i++) draw.iBuf[i] = (unsigned char)((i * 5 + 3) & 0x3f);
+
+	// Same ring-buffer/truncation rules as CMessageBoard::AddMessage.
+	const int KMaxMessagesOnBoard = 6;
+	const int KMaxMessagesLengthOnBoard = 80;
+	std::vector<std::string> msgs;
+	const char* input[] = {
+		"Sound system initialization FAILED!",
+		"Mouse sensitivity 0.55",
+		"Mouse mode: relative",
+		"Effect volume: 65%",
+		"Music volume: 30%",
+		"Screen capture disabled in DEBUG version. Sorry!",
+		"This one is pushed out of the ring by the next line",
+		"A very long message that is certainly longer than eighty characters and must be truncated by the board okay",
+	};
+	for (size_t i = 0; i < sizeof(input) / sizeof(input[0]); i++) {
+		std::string str = input[i];
+		if (str.length() > (size_t)KMaxMessagesLengthOnBoard)
+			str = str.substr(0, KMaxMessagesLengthOnBoard - 3) + "...";
+		msgs.push_back(str);
+		while ((int)msgs.size() > KMaxMessagesOnBoard) msgs.erase(msgs.begin());
+	}
+
+	const int yoffs = 5 + 16; // deathmatch offset
+	const int lineHeight = f.Height() + 1;
+	for (int a = 0; a < (int)msgs.size(); a++)
+		SimFontWrite(f, 5, yoffs + a * lineHeight, (const unsigned char*)msgs[a].c_str(), 0, 0, &draw);
+
+	FILE* out = fopen(outPath, "wb");
+	fwrite(draw.iBuf, 1, (size_t)W * H, out);
+	fclose(out);
+	printf("wrote %s\n", outPath);
+}
+
 // ---- HUD oracle (CGameDrawManager HUD primitives) ----
 static void RenderHud(const char* dumpPath, const char* dataDirIn, const char* outPath) {
 	Level lv;
@@ -308,6 +351,10 @@ int main(int argc, char** argv) {
 	}
 	if (argc >= 4 && std::string(argv[1]) == "fontwrite") {
 		RenderFontWrite(argv[2], argv[3]);
+		return 0;
+	}
+	if (argc >= 4 && std::string(argv[1]) == "messageboard") {
+		RenderMessageBoard(argv[2], argv[3]);
 		return 0;
 	}
 	if (argc >= 5 && std::string(argv[1]) == "hud") {

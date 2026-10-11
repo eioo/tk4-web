@@ -116,7 +116,7 @@ board, fonts, split-screen draw rects.
 (allowing for documented non-determinism).
 ⚠️ Per-pixel light math and the 10 light-map sizes.
 
-**Status:** lights **and HUD/fonts** done; message board and split-screen draw
+**Status:** lights, HUD/fonts **and the message board** done; split-screen draw
 rects pending. Lights were pulled forward because the flamethrower's gas
 bullets have no sprite — their entire visual is a light. Added
 `src/data/light-map.ts` (`CLightMap::Make`) and `GameDrawer.drawLight`
@@ -138,7 +138,14 @@ banner. `drawFrame` now calls `drawHudFrame` after the walls, mirroring
 timer/energy/ammo HUD. Byte-exact against `render_gen fontwrite` / `render_gen
 hud` on level1; see `src/data/__test__/font-write.test.ts` and
 `src/render/__test__/hud.test.ts`. The per-player HUD assumes one local player
-(no split-screen yet); the message board is still to come.
+(no split-screen yet).
+
+Message board: `src/render/message-board.ts` ports `CMessageBoard` (a ring of
+six lines, 80-char truncation, 500-tick auto-clear and the 16 px deathmatch
+offset) and `main.ts` draws it over everything, mirroring `CGameApp::RunFrame`.
+The browser wires F5 (map), F6 (FPS), PageUp/PageDown (mouse sensitivity), F10
+(capture stub) and the unreachable-enemy warning. Byte-exact against `render_gen
+messageboard`; see `src/render/__test__/message-board.test.ts`.
 
 ---
 

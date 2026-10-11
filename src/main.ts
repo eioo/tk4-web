@@ -4,10 +4,11 @@ import { decodePaletteTab } from "./data/color-tables";
 import { mergeIni } from "./data/config";
 import { decodeFnt, fontLength } from "./data/font";
 import { loadIngameData } from "./data/ingame-data";
-import { loadLevel } from "./data/level";
+import { loadLevel, reachable } from "./data/level";
 import { drawFrame, toDrawSprites } from "./render/draw-manager";
 import { GameDrawer } from "./render/drawer";
 import { Framebuffer } from "./render/fb";
+import { MessageBoard } from "./render/message-board";
 import { Canvas2DPresenter } from "./render/presenters/canvas2d";
 import { BulletId, WeaponId, WeaponTypes } from "./sim/types";
 import { Key, MouseButton, SimPlayer, SimWorld, type SimInput } from "./sim/world";
@@ -102,6 +103,11 @@ async function boot(): Promise<void> {
   // HUD timers (`TimerCounter` / `iCompleteTime`).
   let timerCounter = 0;
   const completeTime = 0;
+  // Global overlay drawn over everything (`CMessageBoard`).
+  const messageBoard = new MessageBoard();
+  // In-game HUD toggles (F5 map, F6 fps) and per-player HUD state.
+  let showMap = false;
+  let drawFrames = false;
   // Separate render RNG for `DrawSpots` (see `ActorScene.renderRng`).
   const renderRng = new GlibcRandom(seed);
   world.mouseOwner = 0;
@@ -111,6 +117,22 @@ async function boot(): Promise<void> {
   world.players = [player];
   world.initScr(player, drawRect);
   world.spawnEntities();
+
+  // `CGameSubStateOngoing::EnterState` warns about unreachable enemy placements.
+  for (const e of world.enemies) {
+    const cx = Math.trunc((e.x + 10) / 20);
+    const cy = Math.trunc((e.y + 10) / 20);
+    if (!reachable(level, cx, cy)) {
+      messageBoard.addMessage("One or more enemies are placed in invalid positions!", timerCounter);
+      messageBoard.addMessage(
+        "Those enemies cannot be killed and this level cannot be solved.",
+        timerCounter,
+      );
+      messageBoard.addMessage("Please fix those issues with level editor!", timerCounter);
+      messageBoard.addMessage("(This should however never occure)", timerCounter);
+      break;
+    }
+  }
   // ---- input ----
   const held = new Set<string>();
   let mouseDX = 0;
@@ -121,6 +143,34 @@ async function boot(): Promise<void> {
   window.addEventListener("keydown", (e) => {
     held.add(e.code);
     if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
+    switch (e.code) {
+      case "F5":
+        e.preventDefault();
+        showMap = !showMap;
+        break;
+      case "F6":
+        e.preventDefault();
+        drawFrames = !drawFrames;
+        break;
+      case "PageUp":
+        world.mouseSensitivity = Math.min(world.mouseSensitivity + 0.05, 10.0);
+        messageBoard.addMessage(
+          `Mouse sensitivity ${(world.mouseSensitivity * 100).toFixed(2)}`,
+          timerCounter,
+        );
+        break;
+      case "PageDown":
+        world.mouseSensitivity = Math.max(world.mouseSensitivity - 0.05, 0.0);
+        messageBoard.addMessage(
+          `Mouse sensitivity ${(world.mouseSensitivity * 100).toFixed(2)}`,
+          timerCounter,
+        );
+        break;
+      case "F10":
+        e.preventDefault();
+        messageBoard.addMessage("Screen capture disabled in DEBUG version. Sorry!", timerCounter);
+        break;
+    }
   });
   window.addEventListener("keyup", (e) => held.delete(e.code));
   window.addEventListener("blur", () => {
@@ -178,9 +228,10 @@ async function boot(): Promise<void> {
       const input: SimInput = { keys: keyMask(held), mouseXRel: mouseDX, mouseButtons: buttons };
       mouseDX = 0;
       world.tick(input, drawRect);
+      messageBoard.run(timerCounter);
       timerCounter++;
     },
-    render: () => {
+    render: (info) => {
       fb.clear(0);
       dark.fill(0);
       drawFrame(
@@ -210,10 +261,10 @@ async function boot(): Promise<void> {
             videoWidth: WIDTH,
             videoHeight: HEIGHT,
             frags: false,
-            showMap: false,
-            drawFrames: false,
+            showMap,
+            drawFrames,
             actionTimeMatters: true,
-            currentFps: 0,
+            currentFps: info.fps,
             nextLevel: 0,
             completeTime,
             startTime: 0,
@@ -228,6 +279,7 @@ async function boot(): Promise<void> {
         },
         HEIGHT,
       );
+      messageBoard.draw(hudFont, fb);
       presenter.present(fb, ingame.palette);
     },
   });
@@ -238,6 +290,7 @@ async function boot(): Promise<void> {
     player.bullets[WeaponTypes[weapon].bulletType] = ammo;
     player.curWeapon = weapon as typeof player.curWeapon;
   };
+  window.tk4Msg = (message: string) => messageBoard.addMessage(message, timerCounter);
   window.tk4State = () => ({
     x: player.x,
     y: player.y,
