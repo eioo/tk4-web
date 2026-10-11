@@ -978,6 +978,50 @@ static void DrawWalls(Level* aLevel, Assets& a, GfxBuffer* aDrawBuffer, const Re
 	}
 }
 
+// ---- light maps + DrawLight (CLightMap / CGameDrawer::DrawLight) ----
+static const int KLightAmount = 10;
+
+// CLightMap::Make — writes `aSize*aSize` light strengths.
+static void SimMakeLightMap(int aSize, unsigned char* out) {
+	int a, b;
+	int hsize = aSize / 2;
+	memset(out, 0, (size_t)aSize * aSize);
+	for (a = 0; a < aSize; a++)
+		for (b = 0; b < aSize; b++) {
+			int dist = (int)sqrt((float)((a - hsize) * (a - hsize) + (b - hsize) * (b - hsize)));
+			int iOffset = (a * aSize) + b;
+			int pow = 16 - (int)(dist * (float)(16 / (float)(aSize / 2)));
+			if (pow > 15) pow = 15;
+			if (pow < 0) pow = 0;
+			out[iOffset] = (unsigned char)pow;
+		}
+}
+
+// CGameDrawer::DrawLight — near-verbatim (light tables come from palette.tab).
+static void SimDrawLight(const unsigned char* aLightTable, const unsigned char* aLightMap,
+	int aLightMapSize, int aPosX, int aPosY, int aAdd,
+	GfxBuffer* aDrawBuffer, const RectI& aDrawRect) {
+	int xs = aLightMapSize, ys = aLightMapSize;
+	int px = aPosX - xs / 2;
+	int py = aPosY - ys / 2;
+	RectI clip = ClipRect(px, py, xs, ys, aDrawRect);
+	if (!RectValid(clip)) return;
+	int ycount, xcount;
+	int offset = xs * clip.t + clip.l;
+	unsigned char* dbuf = aDrawBuffer->iBuf + (py + clip.t) * aDrawBuffer->Width() + px + clip.l;
+	int cw = RectW(clip);
+	for (ycount = clip.t; ycount < clip.b; ycount++, dbuf += aDrawBuffer->Width() - cw, offset += xs - cw)
+		for (xcount = clip.l; xcount < clip.r; xcount++, offset++, dbuf++) {
+			int sum = aLightMap[offset];
+			if (sum) {
+				sum += aAdd;
+				if (sum < 0) sum = 0;
+				else if (sum > 15) sum = 15;
+				*dbuf = aLightTable[*dbuf * 16 + sum];
+			}
+		}
+}
+
 // ---- static frame composition ----
 static void DrawStaticFrame(Level& lvl, Assets& a, GfxBuffer* draw, GfxBuffer* dark, const RectI& drawRect, const CoordI& scr, float locX, float locY) {
 	DrawFloor(lvl, a, draw, dark, drawRect, scr);

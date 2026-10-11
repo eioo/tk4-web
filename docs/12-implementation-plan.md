@@ -116,6 +116,16 @@ board, fonts, split-screen draw rects.
 (allowing for documented non-determinism).
 ⚠️ Per-pixel light math and the 10 light-map sizes.
 
+**Status:** lights done; HUD/fonts pending. Pulled forward from M5 because the
+flamethrower's gas bullets have no sprite — their entire visual is a light. Added
+`src/data/light-map.ts` (`CLightMap::Make`) and `GameDrawer.drawLight`
+(`CGameDrawer::DrawLight`) plus the light tables from `palette.tab`. `drawBullets`,
+`drawEffects` and `drawCrates` now emit their lights, and `drawFireLights` (player/enemy
+muzzle flashes) and `drawSpots` (animated level spots) are wired into `drawFrame` in the
+original order. Byte-exact against new oracle modes (`render_gen lightmap` /
+`lightrender`); see `src/data/__test__/light-map.test.ts` and
+`src/render/__test__/light.test.ts`. `DrawSpots` uses a separate render RNG (doc 13).
+
 ---
 
 ## M6 — Game flow, menus, sub-states

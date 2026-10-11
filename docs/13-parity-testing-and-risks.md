@@ -27,6 +27,10 @@ near-verbatim and need only libm (build them all with `bun run reference`):
 - `tools/reference/rotate_gen.cpp` — `RotateSprites` / `MakeFloors` / `ZoomWall`.
 - `tools/reference/render_gen.cpp` — static level frame (floor, shadows, camera-cone black
   parts, pseudo-3D walls) from a raw block dump produced by `tools/reference/dump-level.ts`.
+  It also emits the light oracle: `render_gen lightmap <out.raw>` writes the ten
+  `CLightMap` strength maps (`15 + a*5`), and `render_gen lightrender <palette.tab> <out.raw>`
+  applies eight synthetic lights (all four light tables, sizes 0..9, edge clipping) to a
+  deterministic buffer.
 - `tools/reference/simreference.h` + `tools/reference/sim_gen.cpp` — the **simulation**:
   `CMath`, glibc `rand()`, the weapon/bullet/effect/body-part/enemy tables, `CCharacter::Move`,
   `CPlayer` (input, movement, shooting, damage), `CEnemy` (AI, shooting), `CEffect` (roll),
@@ -41,8 +45,9 @@ near-verbatim and need only libm (build them all with `bun run reference`):
 The TypeScript tests hash the port's output and compare against the oracle's output
 (`sha256` over the pixel buffer / trace), giving byte-exact verification without a
 screenshot workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors`, the
-static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`
-and a 400-tick player/bullet/enemy/effect replay. The full reference build is still needed
+static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`,
+the ten light maps and `CGameDrawer::DrawLight`, and a 400-tick
+player/bullet/enemy/effect replay. The full reference build is still needed
 for audio and menu parity.
 
 ## Determinism
@@ -86,10 +91,13 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   in the observed order) so it does not depend on the compiler, and `src/sim/world.ts`
   reproduces the same order. Any new multi-`rand()` expression must do the same.
 - **Rendering consumes RNG.** The original's `DrawSpots` (and some effects) call `rand()`
-  while drawing, so a real run's RNG stream is intertwined with rendering. The M3 sim
-  trace deliberately excludes rendering; when M5 adds spots/effects the render-side
-  `rand()` calls must be replicated at the same point in the frame or the two must be
-  decoupled and documented.
+  while drawing, so a real run's RNG stream is intertwined with rendering — and because
+  the original's catch-up loop runs a variable number of sim ticks per drawn frame, its
+  RNG stream is *timing-dependent* and not reproducible anyway. The port keeps the
+  simulation on a deterministic stream and gives `DrawSpots` a separate `GlibcRandom`
+  (`ActorScene.renderRng`, seeded from the same value); spot flicker is therefore
+  cosmetic-only and does not perturb the sim. Parity tests check the sim trace and the
+  light rasteriser independently.
 - **Non-local players are static.** In the M3 replay a non-local player receives damage
   and push but is never moved (the original would move it on its own client). Fine for
   single-machine traces; multiplayer emulation is out of scope.

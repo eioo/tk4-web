@@ -8,6 +8,8 @@ import { addMovement } from "../core/math";
 import type { ColorTables } from "../data/color-tables";
 import { KBlockSpriteSize } from "../data/constants";
 import { EBlockTypeFloor } from "../data/level";
+import { KLightAmount, lightMapSize, makeLightMaps } from "../data/light-map";
+import { LightTable } from "../sim/types";
 import type { Framebuffer } from "./fb";
 import {
   fixSmall,
@@ -61,7 +63,14 @@ function copyRange(
 }
 
 export class GameDrawer {
-  constructor(private readonly tables: ColorTables) {}
+  private readonly lightMaps: Uint8Array[];
+
+  constructor(
+    private readonly tables: ColorTables,
+    lightMaps: Uint8Array[] = makeLightMaps(),
+  ) {
+    this.lightMaps = lightMaps;
+  }
 
   /** `CGameDrawer::ClipRect`. Returns the visible sub-rect *inside* the block. */
   clipRect(x: number, y: number, blockXSize: number, blockYSize: number, draw: Rect): Rect {
@@ -269,6 +278,66 @@ export class GameDrawer {
       for (let b = 0; b < rectWidth(clip); b++) {
         const colo = shadowSprite[s + b];
         if (colo !== 0) px[vb + b] = shadow[px[vb + b] * 16 + colo];
+      }
+    }
+  }
+
+  /** The pre-baked light table for a `TLightTable` id. */
+  private lightTableData(table: LightTable): Uint8Array {
+    switch (table) {
+      case LightTable.Normal:
+        return this.tables.normalLight;
+      case LightTable.Explosion:
+        return this.tables.explosionLight;
+      case LightTable.Yellow:
+        return this.tables.yellowLight;
+      case LightTable.Red:
+        return this.tables.redLight;
+      default:
+        throw new Error(`CGameDrawer::DrawLight: invalid light table ${table}`);
+    }
+  }
+
+  /**
+   * `CGameDrawer::DrawLight` — adds a radial light to the framebuffer. Each
+   * covered pixel's light-map strength is offset by `add`, clamped to 0..15 and
+   * used to look up a recoloured index in the selected light table.
+   */
+  drawLight(
+    table: LightTable,
+    posX: number,
+    posY: number,
+    lightSize: number,
+    add: number,
+    fb: Framebuffer,
+    draw: Rect,
+  ): void {
+    if (lightSize < 0 || lightSize >= KLightAmount) {
+      throw new Error(`CGameDrawer::DrawLight: light size ${lightSize} out of range`);
+    }
+    const lightMap = this.lightMaps[lightSize];
+    const xs = lightMapSize(lightSize);
+    const ys = xs;
+
+    const x = posX - (xs >> 1);
+    const y = posY - (ys >> 1);
+    const clip = this.clipRect(x, y, xs, ys, draw);
+    if (!rectValid(clip)) return;
+
+    const lightTableData = this.lightTableData(table);
+    const px = fb.pixels;
+    const w = rectWidth(clip);
+    let offset = xs * clip.top + clip.left;
+    let dbuf = (y + clip.top) * fb.width + x + clip.left;
+    for (let row = clip.top; row < clip.bottom; row++, dbuf += fb.width - w, offset += xs - w) {
+      for (let col = clip.left; col < clip.right; col++, offset++, dbuf++) {
+        const strength = lightMap[offset];
+        if (strength) {
+          let sum = strength + add;
+          if (sum < 0) sum = 0;
+          else if (sum > 15) sum = 15;
+          px[dbuf] = lightTableData[px[dbuf] * 16 + sum];
+        }
       }
     }
   }

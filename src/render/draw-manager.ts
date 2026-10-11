@@ -8,6 +8,8 @@
  * reference build.
  */
 
+import { addMovementI, setMovementI } from "../core/math";
+import type { GlibcRandom } from "../core/rng";
 import {
   KBlockSpriteSize,
   KBodyPartSpriteSize,
@@ -15,9 +17,23 @@ import {
   KEnemySpriteAmount,
 } from "../data/constants";
 import { EGameSprite, type IngameData } from "../data/ingame-data";
-import { EBlockTypeFloor, EBlockTypeWall, levelData, type Block, type Level } from "../data/level";
+import {
+  EBlockTypeFloor,
+  EBlockTypeWall,
+  levelData,
+  type Block,
+  type Level,
+  type SpotLight,
+} from "../data/level";
 import type { SimBodyPart, SimCrate, SimEffect, SimEnemy } from "../sim/entities";
-import { BodyPartTypes, BulletTypes, EffectTypes, EnemyTypes, WeaponTypes } from "../sim/types";
+import {
+  BodyPartTypes,
+  BulletTypes,
+  EffectTypes,
+  EnemyTypes,
+  LightTable,
+  WeaponTypes,
+} from "../sim/types";
 import type { SimBullet, SimPlayer } from "../sim/world";
 import type { DrawSprites, GameDrawer, SpriteView } from "./drawer";
 import type { Framebuffer } from "./fb";
@@ -970,6 +986,14 @@ export interface ActorScene extends StaticScene {
   bodyparts: SimBodyPart[];
   effects: SimEffect[];
   crates: SimCrate[];
+  /** Level spot lights (`CLevel::iSpotLights`). */
+  spotLights: SpotLight[];
+  /**
+   * Render-side RNG. The original shares one `rand()` stream between the
+   * simulation and `DrawSpots`, so its spot flicker depends on frame timing;
+   * the port keeps a separate stream so the simulation stays deterministic.
+   */
+  renderRng: GlibcRandom;
 }
 
 /** `CGameDrawManager::ChkForDraw`. `screenHeight` is the video height. */
@@ -1081,7 +1105,7 @@ export function drawPlayers(scene: ActorScene, live: boolean, screenHeight: numb
   }
 }
 
-/** `CGameDrawManager::DrawBullets` (light rendering is deferred to M5). */
+/** `CGameDrawManager::DrawBullets` — light, then flying sprite, then rocket trail. */
 export function drawBullets(scene: ActorScene, screenHeight: number): void {
   const { drawer, fb, drawRect, screenPos, bullets, sprites } = scene;
   for (const b of bullets) {
@@ -1097,14 +1121,27 @@ export function drawBullets(scene: ActorScene, screenHeight: number): void {
     )
       continue;
     const t = BulletTypes[b.typeId];
+    const x = Math.trunc(drawRect.left + b.x - screenPos.x);
+    const y = Math.trunc(drawRect.top + b.y - screenPos.y);
+    if (t.light !== LightTable.NoLight) {
+      drawer.drawLight(
+        t.light,
+        x,
+        y,
+        t.lightSize,
+        Math.trunc(t.lightLuminance + b.counter * t.lightAdd),
+        fb,
+        drawRect,
+      );
+    }
     if (t.sprite >= 0) {
       const offset =
         t.spriteAngles > 0
           ? (Math.trunc(b.spriteAngle / idiv(360, t.spriteAngles)) % t.spriteAngles) * t.xs
           : 0;
       drawer.drawSprite(
-        Math.trunc(drawRect.left + b.x - (t.xs >> 1) - screenPos.x),
-        Math.trunc(drawRect.top + b.y - (t.ys >> 1) - screenPos.y),
+        x - (t.xs >> 1),
+        y - (t.ys >> 1),
         t.xs,
         t.ys,
         sprites.spriteOf(t.sprite),
@@ -1114,22 +1151,14 @@ export function drawBullets(scene: ActorScene, screenHeight: number): void {
       );
     }
     if (t.rocketLength !== 0) {
-      drawer.drawRocket(
-        Math.trunc(drawRect.left + b.x - screenPos.x),
-        Math.trunc(drawRect.top + b.y - screenPos.y),
-        b.angle,
-        t.rocketLength,
-        t.rocketColor,
-        fb,
-        drawRect,
-      );
+      drawer.drawRocket(x, y, b.angle, t.rocketLength, t.rocketColor, fb, drawRect);
     }
   }
 }
 
 /**
  * `CGameDrawManager::DrawEffects` — draws effects whose `Order()` equals `pos`.
- * Lights are deferred to M5.
+ * The light (if any) is drawn before the sprite.
  */
 export function drawEffects(
   scene: ActorScene,
@@ -1141,12 +1170,23 @@ export function drawEffects(
   for (const eff of effects) {
     const t = EffectTypes[eff.typeId];
     if (t.order !== pos) continue;
+    const x = Math.trunc(drawRect.left + eff.x - screenPos.x);
+    const y = Math.trunc(drawRect.top + eff.y - screenPos.y);
     const chkX = Math.trunc(eff.x + drawRect.left) + -Math.trunc(t.xs / 2);
     const chkY = Math.trunc(eff.y + drawRect.top) + -Math.trunc(t.ys / 2);
     if (!chkForDraw(chkX, chkY, screenPos, Math.max(t.xs, t.ys), drawRect, screenHeight)) continue;
+    if (t.lightTable !== LightTable.NoLight) {
+      drawer.drawLight(
+        t.lightTable,
+        x,
+        y,
+        t.lightSize,
+        Math.trunc(t.lightAddConst + eff.counter * t.lightAddMultiplier),
+        fb,
+        drawRect,
+      );
+    }
     if (!t.sprite) continue;
-    const x = Math.trunc(drawRect.left + eff.x - screenPos.x);
-    const y = Math.trunc(drawRect.top + eff.y - screenPos.y);
     const number = Math.trunc(eff.counter / t.delay);
     const offset = t.offset + (t.xs + 1) * number + 321;
     const draw = t.transparentSprite ? drawer.drawTransSprite : drawer.drawSprite;
@@ -1192,7 +1232,7 @@ export function drawBodyParts(scene: ActorScene, screenHeight: number): void {
   }
 }
 
-/** `CGameDrawManager::DrawCrates` (the crate light is deferred to M5). */
+/** `CGameDrawManager::DrawCrates` — a small light behind the sprite. */
 export function drawCrates(scene: ActorScene, screenHeight: number): void {
   const { drawer, fb, drawRect, screenPos, crates, sprites } = scene;
   for (const c of crates) {
@@ -1208,6 +1248,15 @@ export function drawCrates(scene: ActorScene, screenHeight: number): void {
       )
     )
       continue;
+    drawer.drawLight(
+      LightTable.Normal,
+      drawRect.left + c.x - screenPos.x + 7,
+      drawRect.top + c.y - screenPos.y + 7,
+      4,
+      2,
+      fb,
+      drawRect,
+    );
     drawer.drawSprite(
       drawRect.left + c.x - screenPos.x,
       drawRect.top + c.y - screenPos.y,
@@ -1255,13 +1304,95 @@ export function drawAliveEnemies(scene: ActorScene, screenHeight: number): void 
 }
 
 /**
- * Composes a full in-game frame for the M3 subset (floor, character shadows,
- * bullets, players, block shadows, camera cone, walls) in the original order.
- * Effects, crates, enemies, lights and HUD arrive in later milestones.
+ * `CGameDrawManager::DrawFireLights` — muzzle-flash lights for players and
+ * enemies currently firing a single-handed gun.
+ */
+export function drawFireLights(scene: ActorScene, screenHeight: number): void {
+  const { drawer, fb, drawRect, screenPos, players, enemies } = scene;
+  const fire1ofs = 4;
+  const fire2ofs = 2;
+  const drawOfsX = 14;
+  const drawOfsY = 13;
+  const lightMapSize3 = 30; // iGGI->ColorTable()->LightMap(3).Size()
+
+  for (const pl of players) {
+    if (!WeaponTypes[pl.curWeapon].gun) continue;
+    if (!pl.fire && !pl.fire2) continue;
+    const angle = Math.trunc(pl.angle);
+    let ofs = setMovementI(angle, 8);
+    ofs = pl.fire
+      ? addMovementI(ofs, angle + 90, fire1ofs)
+      : addMovementI(ofs, angle + 270, fire2ofs);
+    const posX = Math.trunc(pl.x + drawOfsX + ofs.x + drawRect.left);
+    const posY = Math.trunc(pl.y + drawOfsY + ofs.y + drawRect.top);
+    if (!chkForDraw(posX, posY, screenPos, lightMapSize3, drawRect, screenHeight)) continue;
+    drawer.drawLight(
+      LightTable.Normal,
+      posX - screenPos.x,
+      posY - screenPos.y,
+      3,
+      5 - pl.fire,
+      fb,
+      drawRect,
+    );
+  }
+
+  for (const e of enemies) {
+    if (!WeaponTypes[e.curWeapon].gun) continue;
+    if (!e.fire) continue;
+    const angle = Math.trunc(f32(enemySpriteAngle(e) * 4.5));
+    let ofs = setMovementI(angle, 10);
+    ofs = addMovementI(ofs, angle + 90, 3);
+    const posX = Math.trunc(e.x + drawOfsX + ofs.x + drawRect.left);
+    const posY = Math.trunc(e.y + drawOfsY + ofs.y + drawRect.top);
+    if (!chkForDraw(posX, posY, screenPos, lightMapSize3, drawRect, screenHeight)) continue;
+    drawer.drawLight(
+      LightTable.Normal,
+      posX - screenPos.x,
+      posY - screenPos.y,
+      3,
+      2 - e.fire,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/**
+ * `CGameDrawManager::DrawSpots` — animated level spot lights. The original
+ * calls `rand()` for the flicker of *every* spot (even off-screen ones) from
+ * the shared stream; the port uses the dedicated render RNG.
+ */
+export function drawSpots(scene: ActorScene, screenHeight: number): void {
+  const { drawer, fb, drawRect, screenPos, spotLights, renderRng } = scene;
+  for (const spot of spotLights) {
+    let flash = 0;
+    if (renderRng.rand() % 50 === 0) flash = -2 + (renderRng.rand() % 5);
+
+    const chkX = Math.trunc(spot.x + drawRect.left) - 30;
+    const chkY = Math.trunc(spot.y + drawRect.top) - 30;
+    if (!chkForDraw(chkX, chkY, screenPos, 60, drawRect, screenHeight)) continue;
+    drawer.drawLight(
+      LightTable.Normal,
+      Math.trunc(drawRect.left + spot.x - screenPos.x),
+      Math.trunc(drawRect.top + spot.y - screenPos.y),
+      spot.size,
+      2 + flash,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/**
+ * Composes a full in-game frame in the original `DrawFrame` order: floor,
+ * dead players, low effects, body parts, character shadows, crates, bullets,
+ * live enemies, players, fire lights, block shadows, high effects, spot
+ * lights, camera cone and walls. (HUD arrives in M5.)
  */
 export function drawFrame(scene: ActorScene, screenHeight: number): void {
-  const { level, sprites, drawer, fb, dark, drawRect, screenPos, effects } = scene;
-  drawFloor(level, sprites, drawer, fb, dark, drawRect, screenPos);
+  const { level, drawer, fb, dark, drawRect, screenPos, effects } = scene;
+  drawFloor(level, scene.sprites, drawer, fb, dark, drawRect, screenPos);
   drawPlayers(scene, false, screenHeight);
   drawEffects(scene, effects, 0, screenHeight);
   drawBodyParts(scene, screenHeight);
@@ -1270,8 +1401,10 @@ export function drawFrame(scene: ActorScene, screenHeight: number): void {
   drawBullets(scene, screenHeight);
   drawAliveEnemies(scene, screenHeight);
   drawPlayers(scene, true, screenHeight);
+  drawFireLights(scene, screenHeight);
   drawShadows(level, drawer, fb, drawRect, screenPos);
   drawEffects(scene, effects, 1, screenHeight);
+  drawSpots(scene, screenHeight);
   drawBlackPartsOfLevel(scene);
   drawWalls(scene);
 }

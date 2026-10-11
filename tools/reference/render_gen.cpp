@@ -16,7 +16,64 @@
 
 #include "tkreference.h"
 
+// ---- extra oracle modes (lights) ----
+static void WriteLightMaps(const char* outPath) {
+	FILE* out = fopen(outPath, "wb");
+	unsigned char buf[60 * 60];
+	for (int a = 0; a < KLightAmount; a++) {
+		int size = 15 + a * 5;
+		SimMakeLightMap(size, buf);
+		fwrite(buf, 1, (size_t)size * size, out);
+	}
+	fclose(out);
+	printf("wrote %s\n", outPath);
+}
+
+static void RenderLights(const char* paletteTab, const char* outPath) {
+	unsigned char* tab = (unsigned char*)malloc(86016);
+	FILE* tf = fopen(paletteTab, "rb");
+	if (!tf) { fprintf(stderr, "cannot open %s\n", paletteTab); free(tab); return; }
+	size_t rd = fread(tab, 1, 86016, tf); (void)rd; fclose(tf);
+	// layout: transparency[65536], shadow[4096], then 4 light tables [4096 each].
+	const unsigned char* lights = tab + 65536 + 4096;
+	const unsigned char* normal = lights;
+	const unsigned char* red = lights + 4096;
+	const unsigned char* yellow = lights + 8192;
+	const unsigned char* explosion = lights + 12288;
+
+	static unsigned char maps[KLightAmount][60 * 60];
+	for (int a = 0; a < KLightAmount; a++) SimMakeLightMap(15 + a * 5, maps[a]);
+
+	const int W = 200, H = 150;
+	GfxBuffer draw; draw.Resize(W, H);
+	for (int i = 0; i < W * H; i++) draw.iBuf[i] = (unsigned char)((i * 7) & 0xff);
+	RectI drawRect(0, 0, W, H);
+
+	SimDrawLight(normal, maps[2], 25, 30, 40, -10, &draw, drawRect);
+	SimDrawLight(normal, maps[2], 25, 30, 40, 0, &draw, drawRect);
+	SimDrawLight(explosion, maps[7], 50, 100, 75, 3, &draw, drawRect);
+	SimDrawLight(yellow, maps[3], 30, 100, 75, -1, &draw, drawRect);
+	SimDrawLight(red, maps[4], 35, 5, 5, 2, &draw, drawRect);
+	SimDrawLight(normal, maps[0], 15, 199, 149, 15, &draw, drawRect);
+	SimDrawLight(explosion, maps[9], 60, 150, 120, -5, &draw, drawRect);
+	SimDrawLight(normal, maps[1], 20, 0, 0, 4, &draw, drawRect);
+
+	FILE* out = fopen(outPath, "wb");
+	fwrite(draw.iBuf, 1, (size_t)W * H, out);
+	fclose(out);
+	free(tab);
+	printf("wrote %s\n", outPath);
+}
+
 int main(int argc, char** argv) {
+	if (argc >= 3 && std::string(argv[1]) == "lightmap") {
+		WriteLightMaps(argv[2]);
+		return 0;
+	}
+	if (argc >= 4 && std::string(argv[1]) == "lightrender") {
+		RenderLights(argv[2], argv[3]);
+		return 0;
+	}
 	if (argc < 6) {
 		fprintf(stderr, "usage: render_gen <leveldump> <datadir> <out.raw> <locX> <locY> [W] [H]\n");
 		return 2;

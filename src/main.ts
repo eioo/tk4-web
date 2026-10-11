@@ -1,4 +1,5 @@
 import { createLoop } from "./core/loop";
+import { GlibcRandom } from "./core/rng";
 import { decodePaletteTab } from "./data/color-tables";
 import { mergeIni } from "./data/config";
 import { decodeFnt, fontLength } from "./data/font";
@@ -94,7 +95,10 @@ async function boot(): Promise<void> {
   const drawRect = fb.rect();
 
   const start = level.starts[0] ?? { x: level.width >> 1, y: level.height >> 1 };
-  const world = new SimWorld(level, (Date.now() / 1000) >>> 0);
+  const seed = (Date.now() / 1000) >>> 0;
+  const world = new SimWorld(level, seed);
+  // Separate render RNG for `DrawSpots` (see `ActorScene.renderRng`).
+  const renderRng = new GlibcRandom(seed);
   world.mouseOwner = 0;
   world.mouseSensitivity = 0.5;
   world.textLength = (text) => fontLength(font, text);
@@ -189,6 +193,8 @@ async function boot(): Promise<void> {
           bodyparts: world.bodyparts,
           effects: world.effects,
           crates: world.crates,
+          spotLights: level.spotLights,
+          renderRng,
         },
         HEIGHT,
       );
