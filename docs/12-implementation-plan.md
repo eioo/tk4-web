@@ -170,9 +170,27 @@ select; level info; shop; statistics; victory; in-game quit.
 - **M6c — economy/progress.** `CGameSubStateShop`/`Statistics`/`Victory`, the
   statistics view, shopping, and episode → episode progression to victory.
 
-**Status:** M6a foundations landed: `src/data/pcx.ts` (`CGraphicsBuffer::LoadPCX`,
-byte-exact vs. `render_gen pcx`) and `src/render/fader.ts` (`CGraphicsFader::DrawPhase`
-/ `DrawZoom` / fades, byte-exact vs. `render_gen fader`).
+**Status:** M6a and most of M6b are in. The app shell (`src/app/app.ts`)
+ports `CGameState` plus `CGameApp::Loop`'s effect handling, the two logo
+screens, `CGUIStateQuit`, and the in-game sub-state flow (`NextLevel`,
+`LevelInfo`, `OnGoing`, `Quit`, and simplified `Shop`/`Statistics`/`Victory`).
+`src/app/menu.ts` ports the menu framework and every menu tree
+(`CGameMenuBase`/`Container`/`MenuItem`, `Menu.cpp`, `MenuItems.cpp`),
+`src/app/options.ts` the `COptionsData` defaults and episode/music lists, and
+`src/app/game-session.ts` the per-level `SimWorld` + HUD that used to live in
+`main.ts`. Fonts/menu sprites load via `src/app/fonts.ts` and
+`src/data/menu-data.ts` (new PCX path); `tools/build-assets.ts` emits the
+episode/manifest listing the browser cannot `scandir`.
+
+Verified by scripted browser runs (`tools.browser.*`): EF logo → TK logo → main
+menu → single game → episode select → level info → ongoing, with the level
+info "killing list" and the running level/HUD drawn correctly. Menu navigation
+is covered by `src/app/__test__/menu.test.ts`.
+
+Still pending: the level-select/game-mode multiplay wiring beyond the menu
+skeleton, the shop, the real statistics table, and episode progression to
+victory with money/weapons persistence (M6c); the version string and per-level
+`<level>.ini` overrides.
 
 ---
 

@@ -60,6 +60,30 @@ export class Framebuffer {
   }
 
   /**
+   * `CGraphicsBuffer::DrawBox` — draws a bright one-pixel outline and darkens
+   * the interior by `add`. Coordinates are clamped to the buffer.
+   */
+  drawBox(r: Rect, add: number): void {
+    const left = Math.max(r.left, 0);
+    const top = Math.max(r.top, 0);
+    const right = Math.min(r.right, this.width);
+    const bottom = Math.min(r.bottom, this.height);
+    const w = right - left;
+    const h = bottom - top;
+    for (let a = 0; a < h; a++) {
+      for (let b = 0; b < w; b++) {
+        const offs = (top + a) * this.width + left + b;
+        let c: number;
+        if (a === 0 || a === h - 1 || b === 0 || b === w - 1) c = this.pixels[offs] + 1;
+        else c = this.pixels[offs] - add;
+        if (c < 0) c = 0;
+        if (c > 63) c = 63;
+        this.pixels[offs] = c;
+      }
+    }
+  }
+
+  /**
    * Converts the index buffer to RGBA bytes using `palette`. `out` may be
    * reused between frames; it must be `width * height * 4` bytes.
    */

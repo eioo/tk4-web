@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { decodePcx } from "../pcx";
+import { decodeEfpPalette, decodePcx } from "../efp";
 import { readRef, sha256 } from "./helpers";
 
 // SHA-256 of the buffer produced by the C++ oracle
@@ -13,12 +13,14 @@ const HASHES: Record<string, string> = {
 
 for (const [path, hash] of Object.entries(HASHES)) {
   test(`decodePcx matches the C++ oracle: ${path}`, async () => {
-    const image = decodePcx(await readRef(path));
-    const out = new Uint8Array(8 + image.pixels.length + image.palette.length);
+    const bytes = await readRef(path);
+    const image = decodePcx(bytes);
+    const palette = decodeEfpPalette(bytes);
+    const out = new Uint8Array(8 + image.pixels.length + palette.length);
     new DataView(out.buffer).setUint32(0, image.width, true);
     new DataView(out.buffer).setUint32(4, image.height, true);
     out.set(image.pixels, 8);
-    out.set(image.palette, 8 + image.pixels.length);
+    out.set(palette, 8 + image.pixels.length);
     expect(sha256(out)).toBe(hash);
   });
 }

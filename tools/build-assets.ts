@@ -46,6 +46,11 @@ interface SpriteEntry extends AssetEntry {
   height: number;
 }
 
+interface EpisodeEntry {
+  name: string;
+  levels: AssetEntry[];
+}
+
 interface Manifest {
   source: "tapankaikki4/data";
   palette: string;
@@ -56,16 +61,31 @@ interface Manifest {
   levels: AssetEntry[];
   sounds: AssetEntry[];
   music: AssetEntry[];
+  musicThemes: string[];
+  deathmatchLevels: AssetEntry[];
+  episodes: EpisodeEntry[];
+}
+
+/** `CLevel::ReadLevelName`: the level's `iComment`, or its filename. */
+function levelName(bytes: Uint8Array, file: string): string {
+  const comment = loadLevel(bytes).general.comment;
+  return comment.length > 0 ? comment : file;
+}
+
+function levelNumber(file: string): number {
+  return Number(/level(\d+)\.lev$/i.exec(file)?.[1] ?? 0);
 }
 
 async function main(): Promise<void> {
   const efps = await list("efps/*.efp");
+  const pcxs = await list("efps/*.pcx");
   const fnts = await list("fnts/*.fnt");
   const levs = await list("levs/**/*.lev");
   const wavs = await list("wavs/*.wav");
   const music = await list("music/**/*.ogg");
 
   await copyAll(efps);
+  await copyAll(pcxs);
   await copyAll(fnts);
   await copyAll(levs);
   await copyAll(wavs);
@@ -100,6 +120,56 @@ async function main(): Promise<void> {
     levels.push({ file });
   }
 
+  // Episode listing: `stdlib` can't `scandir` in the browser, so mirror
+  // `CEpisodeList::ListFiles`/`CDeathMatchEpisode::ListFiles` here. Regular
+  // episodes are the subdirectories of `levs/` (alphabetical, numeric level
+  // order); the Deathmatch episode is every `*.lev` directly in `levs/`.
+  const levelNameCache = new Map<string, string>();
+  const nameOf = async (file: string): Promise<string> => {
+    const cached = levelNameCache.get(file);
+    if (cached !== undefined) return cached;
+    const bytes = new Uint8Array(await Bun.file(new URL(file, srcDir)).arrayBuffer());
+    const base = file.slice(file.lastIndexOf("/") + 1);
+    const name = levelName(bytes, base);
+    levelNameCache.set(file, name);
+    return name;
+  };
+
+  const deathmatchLevels: AssetEntry[] = [];
+  for (const file of levs) {
+    if (!file.slice("levs/".length).includes("/")) {
+      deathmatchLevels.push({ file, logical: await nameOf(file) });
+    }
+  }
+  deathmatchLevels.sort((a, b) => a.file.localeCompare(b.file));
+
+  const episodeDirs = new Map<string, string[]>();
+  for (const file of levs) {
+    const rest = file.slice("levs/".length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) continue;
+    const dir = rest.slice(0, slash);
+    const base = rest.slice(slash + 1);
+    if (!/^level\d+\.lev$/i.test(base)) continue;
+    const files = episodeDirs.get(dir) ?? [];
+    files.push(file);
+    episodeDirs.set(dir, files);
+  }
+  const episodes: EpisodeEntry[] = [];
+  for (const dir of [...episodeDirs.keys()].toSorted()) {
+    const files = episodeDirs.get(dir)!.toSorted((a, b) => levelNumber(a) - levelNumber(b));
+    episodes.push({
+      name: dir,
+      levels: await Promise.all(files.map(async (file) => ({ file, logical: await nameOf(file) }))),
+    });
+  }
+
+  const musicThemes = music
+    .filter((file) => file.slice("music/".length).includes("/"))
+    .map((file) => file.slice("music/".length).split("/")[0])
+    .filter((v, i, all) => all.indexOf(v) === i)
+    .toSorted();
+
   // Sanity-check the colour tables.
   decodePaletteTab(new Uint8Array(await Bun.file(new URL("palette.tab", srcDir)).arrayBuffer()));
 
@@ -113,6 +183,9 @@ async function main(): Promise<void> {
     levels,
     sounds: wavs.map((file) => ({ file })),
     music: music.map((file) => ({ file })),
+    musicThemes,
+    deathmatchLevels,
+    episodes,
   };
   await Bun.write(new URL("manifest.json", outDir), `${JSON.stringify(manifest, null, 2)}\n`);
 
