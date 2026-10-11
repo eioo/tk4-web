@@ -148,7 +148,13 @@ function newBlock(type: number, number: number, height: number): Block {
   return { type, number, shadow: 0, height, castDarkness: 0 };
 }
 
-export function loadLevel(bytes: Uint8Array): Level {
+/**
+ * Parses a level file into blocks/entities but does **not** compute the derived
+ * maps (visibility, border, darkness, shadows). Use `loadLevel` for a playable
+ * level, or this + {@link computeDerivedMaps} when the raw block data is needed
+ * (e.g. to feed the reference oracle).
+ */
+export function parseLevel(bytes: Uint8Array): Level {
   const version = new Reader(bytes).int();
   if (version > 100) throw new Error("loadLevel: level file corrupted?");
   const level: Level = {
@@ -170,10 +176,23 @@ export function loadLevel(bytes: Uint8Array): Level {
   };
   if (version > KLastOldFormatVersion) loadNewFormat(level, bytes);
   else loadOldFormat(level, bytes);
+  return level;
+}
+
+/**
+ * The four derived-map passes run on every load, in this order (matches
+ * `CLevel::Load`): reachability, border modification, darkness cast, shadows.
+ */
+export function computeDerivedMaps(level: Level): void {
   generateReachableMap(level);
   modifyBorderBlocks(level);
   darknessCast(level);
   generateShadows(level);
+}
+
+export function loadLevel(bytes: Uint8Array): Level {
+  const level = parseLevel(bytes);
+  computeDerivedMaps(level);
   return level;
 }
 
@@ -483,7 +502,7 @@ export function generateReachableMap(level: Level): void {
 }
 
 /** `ModifyBorderBlocks` — border floors become walls at the out-block height. */
-function modifyBorderBlocks(level: Level): void {
+export function modifyBorderBlocks(level: Level): void {
   const outHeight = KBlockHeights[level.outBlock.number];
   for (let y = 0; y < level.height; y++) {
     for (const x of [0, level.width - 1]) {
@@ -502,7 +521,7 @@ function modifyBorderBlocks(level: Level): void {
 }
 
 /** `DarknessCast` — interior blocks cast darkness when their height is non-zero. */
-function darknessCast(level: Level): void {
+export function darknessCast(level: Level): void {
   for (let y = 1; y < level.height - 1; y++) {
     for (let x = 1; x < level.width - 1; x++) {
       level.blocks[y * level.width + x].castDarkness =
@@ -512,7 +531,7 @@ function darknessCast(level: Level): void {
 }
 
 /** `GenerateShadows` — writes iShadow 1/2/3 down-left / down-right of walls. */
-function generateShadows(level: Level): void {
+export function generateShadows(level: Level): void {
   const { width, height, blocks } = level;
   for (let i = 0; i < width * height; i++) blocks[i].shadow = 0;
 

@@ -49,6 +49,13 @@ black parts, and the camera.
 same level/camera (pixel diff below threshold).
 ⚠️ Pseudo-3D wall draw order and `perspectFixOffset` quirks.
 
+**Status:** done. `Framebuffer`, the Canvas2D presenter, the `CGameDrawer` primitives
+(blocks, wall shadows, polygons/triangle rasteriser) and the static draw order
+(`DrawFloor` → `DrawShadows` → `DrawBlackPartsOfLevel` → `DrawWalls`) are ported and
+verified **byte-for-byte** against `tools/reference/render_gen.cpp` on six levels
+(old + new format). `src/main.ts` boots a level with a free (arrow-key) camera in the
+browser.
+
 ---
 
 ## M3 — Core simulation: player, bullets, collision

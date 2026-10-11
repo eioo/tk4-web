@@ -98,13 +98,13 @@ RotateSprites(buffer, 28, 28, 80|40, palette)`:
   (`KEnemySpriteAmount`).
 - Rows = `inputHeight / 28` animation frames.
 
-> ⚠️ **Parity question (resolve by building the original):** the shipped `rambo*.efp` /
-> `enemy*.efp` files are already 80×9 / 40×8 angle sheets, yet `CIngameData` still runs
-> `RotateSprites` on them at load. The rotation algorithm only ever *reads* the
-> left-most ~29 px strip of each row (the "one angle" base), so it effectively
-> **regenerates the full sheet from the left column each load**. To be pixel-exact we
-> must run the same algorithm on the same file bytes. This must be confirmed against a
-> reference build (doc 13).
+> ✅ **Resolved (M1/M2):** the shipped `rambo*.efp` / `enemy*.efp` files are already
+> 80×9 / 40×8 angle sheets, and `CIngameData` still runs `RotateSprites` on them at
+> load. The rotation only ever *reads* the left-most `cell`-wide strip of each row
+> band (the "one angle" base) and regenerates the full sheet. We port the algorithm
+> verbatim (including the buffer aliasing and 32-bit float maths) and feed the same
+> bytes; `src/render/__test__/` proves the result is byte-identical to the C++
+> oracle (`tools/reference/rotate_gen.cpp`).
 
 ## Frame draw order (`CGameDrawManager::DrawFrame`)
 

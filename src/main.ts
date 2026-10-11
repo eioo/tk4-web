@@ -1,54 +1,100 @@
 import { createLoop } from "./core/loop";
-import { drawTestPattern } from "./render/test-pattern";
+import { decodePaletteTab } from "./data/color-tables";
+import { mergeIni } from "./data/config";
+import { loadIngameData } from "./data/ingame-data";
+import { loadLevel } from "./data/level";
+import { drawStaticFrame, screenPosFor, toDrawSprites } from "./render/draw-manager";
+import { GameDrawer } from "./render/drawer";
+import { Framebuffer } from "./render/fb";
+import { Canvas2DPresenter } from "./render/presenters/canvas2d";
 
-/** Internal (video-mode) resolution. Matches the original's default 640×480. */
-const INTERNAL_WIDTH = 640;
-const INTERNAL_HEIGHT = 480;
+/** Internal (video-mode) resolution — the original's in-game default. */
+const WIDTH = 640;
+const HEIGHT = 480;
 
-/**
- * Scale the canvas to the largest integer multiple that fits the window,
- * falling back to a fractional scale when the window is smaller than the
- * internal resolution. Nearest-neighbour keeps pixels crisp.
- */
-function fitCanvas(canvas: HTMLCanvasElement): void {
-  const sx = window.innerWidth / INTERNAL_WIDTH;
-  const sy = window.innerHeight / INTERNAL_HEIGHT;
-  const fit = Math.min(sx, sy);
-  const scale = fit >= 1 ? Math.floor(fit) : fit;
-  canvas.style.width = `${Math.round(INTERNAL_WIDTH * scale)}px`;
-  canvas.style.height = `${Math.round(INTERNAL_HEIGHT * scale)}px`;
+/** Level shown at boot (M2 renders a static level with a free camera). */
+const LEVEL_PATH = "levs/default/level1.lev";
+
+async function loadBytes(path: string): Promise<Uint8Array> {
+  const res = await fetch(`assets/${path}`);
+  if (!res.ok) throw new Error(`missing asset "assets/${path}" — run "bun run assets" first`);
+  return new Uint8Array(await res.arrayBuffer());
 }
 
-function boot(): void {
+async function loadText(path: string): Promise<string> {
+  const res = await fetch(`assets/${path}`);
+  if (!res.ok) throw new Error(`missing asset "assets/${path}" — run "bun run assets" first`);
+  return res.text();
+}
+
+async function boot(): Promise<void> {
   const root = document.getElementById("app");
   if (!root) throw new Error("#app element not found");
 
-  const canvas = document.createElement("canvas");
-  canvas.id = "screen";
-  canvas.width = INTERNAL_WIDTH;
-  canvas.height = INTERNAL_HEIGHT;
-  root.appendChild(canvas);
+  const presenter = new Canvas2DPresenter(WIDTH, HEIGHT);
+  presenter.fit();
+  window.addEventListener("resize", () => presenter.fit());
+  root.appendChild(presenter.canvas);
 
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("2D canvas context unavailable");
-  ctx.imageSmoothingEnabled = false;
+  const [cfgText, paletteTabBytes, levelBytes] = await Promise.all([
+    loadText("default.ini"),
+    loadBytes("palette.tab"),
+    loadBytes(LEVEL_PATH),
+  ]);
+  const level = loadLevel(levelBytes);
+  const ingame = await loadIngameData(mergeIni(cfgText), loadBytes);
+  const sprites = toDrawSprites(ingame);
 
-  const image = ctx.createImageData(INTERNAL_WIDTH, INTERNAL_HEIGHT);
+  const fb = new Framebuffer(WIDTH, HEIGHT);
+  const dark = new Uint8Array(WIDTH * HEIGHT);
+  const drawer = new GameDrawer(decodePaletteTab(paletteTabBytes));
+  const drawRect = fb.rect();
 
-  fitCanvas(canvas);
-  window.addEventListener("resize", () => fitCanvas(canvas));
+  // Fixed camera at the first player start; arrow keys pan it for inspection.
+  const start = level.starts[0] ?? { x: level.width >> 1, y: level.height >> 1 };
+  const location = { x: start.x * 20 + 10, y: start.y * 20 + 10 };
+
+  const keys = new Set<string>();
+  window.addEventListener("keydown", (e) => {
+    keys.add(e.key);
+    if (e.key.startsWith("Arrow")) e.preventDefault();
+  });
+  window.addEventListener("keyup", (e) => keys.delete(e.key));
 
   const loop = createLoop({
     tick: () => {
-      // M0: no simulation yet. The 100 Hz game tick is wired in here at M3.
+      const step = 5;
+      if (keys.has("ArrowLeft")) location.x -= step;
+      if (keys.has("ArrowRight")) location.x += step;
+      if (keys.has("ArrowUp")) location.y -= step;
+      if (keys.has("ArrowDown")) location.y += step;
     },
-    render: (info) => {
-      drawTestPattern(image, info);
-      ctx.putImageData(image, 0, 0);
+    render: () => {
+      fb.clear(0);
+      dark.fill(0);
+      drawStaticFrame({
+        level,
+        sprites,
+        drawer,
+        fb,
+        dark,
+        drawRect,
+        screenPos: screenPosFor(location, drawRect),
+        playerLocation: location,
+      });
+      presenter.present(fb, ingame.palette);
     },
   });
-
   loop.start();
+  (window as unknown as Record<string, unknown>).tk4Ready = true;
 }
 
-boot();
+boot().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  (window as unknown as Record<string, unknown>).tk4Error = message;
+  const root = document.getElementById("app");
+  if (root) {
+    root.innerHTML = `<pre style="color:#f66;font:14px/1.5 monospace;padding:16px;white-space:pre-wrap">Boot failed: ${message}</pre>`;
+  }
+  console.error(err);
+});

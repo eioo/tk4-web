@@ -15,6 +15,25 @@ The single most valuable tool is a **working reference build** of the C++ game
 
 Run it under `Xvfb` with deterministic input injection, or with a small scripted harness.
 
+### Lightweight oracles (no SDL)
+
+Building the whole game needs SDL 1.2/mixer/image/net. For the **asset** and **drawing**
+layers we instead keep small standalone C++ oracles that copy the original algorithms
+near-verbatim and need only libm:
+
+- `tools/reference/tkreference.h` — shared copies of `CPalette`, `CGraphicsGenerator`,
+  `CLevel` (heights + derived maps), `CGameDrawer` and the static `CGameDrawManager`
+  draws.
+- `tools/reference/rotate_gen.cpp` — `RotateSprites` / `MakeFloors` / `ZoomWall`.
+- `tools/reference/render_gen.cpp` — static level frame (floor, shadows, camera-cone black
+  parts, pseudo-3D walls) from a raw block dump produced by `tools/reference/dump-level.ts`.
+
+The TypeScript tests hash the port's output and compare against the oracle's output
+(`sha256` over the pixel buffer), giving byte-exact verification without a screenshot
+workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors` and the static
+render path across old- and new-format levels. The full reference build is still needed
+for simulation, audio and menu parity.
+
 ## Determinism
 
 ### glibc `rand()`

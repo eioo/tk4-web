@@ -15,6 +15,12 @@ export const KPlayerSpriteAmount = 80;
 /** Number of sprite directions for enemies. */
 export const KEnemySpriteAmount = 40;
 
+/** Number of wall height variants (heights 0..5). */
+export const KWallSprites = 6;
+
+/** Size of a body-part sprite cell. */
+export const KBodyPartSpriteSize = 20;
+
 /** Number of distinct enemy types. */
 export const EEnemyAmount = 10;
 
