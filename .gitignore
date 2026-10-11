@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.vite/
+
+# reference checkout: upstream C++ game (suomipelit/tapankaikki4), kept out of
+# this repo's history
+tapankaikki4/
+
+# misc
+*.log
+.DS_Store
