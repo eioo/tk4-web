@@ -8,10 +8,16 @@
  * reference build.
  */
 
-import { KBlockSpriteSize } from "../data/constants";
+import {
+  KBlockSpriteSize,
+  KBodyPartSpriteSize,
+  KCharacterSpriteSize,
+  KEnemySpriteAmount,
+} from "../data/constants";
 import { EGameSprite, type IngameData } from "../data/ingame-data";
 import { EBlockTypeFloor, EBlockTypeWall, levelData, type Block, type Level } from "../data/level";
-import { BulletTypes, WeaponTypes } from "../sim/types";
+import type { SimBodyPart, SimCrate, SimEffect, SimEnemy } from "../sim/entities";
+import { BodyPartTypes, BulletTypes, EffectTypes, EnemyTypes, WeaponTypes } from "../sim/types";
 import type { SimBullet, SimPlayer } from "../sim/world";
 import type { DrawSprites, GameDrawer, SpriteView } from "./drawer";
 import type { Framebuffer } from "./fb";
@@ -960,6 +966,10 @@ export const KPlayerColor0 = 16 * 3;
 export interface ActorScene extends StaticScene {
   players: SimPlayer[];
   bullets: SimBullet[];
+  enemies: SimEnemy[];
+  bodyparts: SimBodyPart[];
+  effects: SimEffect[];
+  crates: SimCrate[];
 }
 
 /** `CGameDrawManager::ChkForDraw`. `screenHeight` is the video height. */
@@ -978,6 +988,11 @@ function chkForDraw(
   return posX >= left && posX < right && posY >= top && posY < bottom;
 }
 
+/** `CEnemy::SpriteAngle` — `int(iAngle / 4.5)`. */
+function enemySpriteAngle(e: SimEnemy): number {
+  return Math.trunc(e.angle / 4.5);
+}
+
 /** `RamboSprite` index from the player's weapon (`CGameDrawManager::DrawPlayers`). */
 function ramboSpriteIndex(p: SimPlayer): number {
   if (p.dead) return 0;
@@ -985,11 +1000,32 @@ function ramboSpriteIndex(p: SimPlayer): number {
   return WeaponTypes[p.curWeapon].sprite;
 }
 
-/** `CGameDrawManager::DrawCharacterShadows` — player blobs (enemies deferred). */
+/** `CGameDrawManager::DrawCharacterShadows` — enemy blobs, then player blobs. */
 export function drawCharacterShadows(scene: ActorScene, screenHeight: number): void {
-  const { drawer, fb, drawRect, screenPos, players, sprites } = scene;
+  const { drawer, fb, drawRect, screenPos, players, enemies, sprites } = scene;
   const xo = -1;
   const yo = 7;
+  for (const e of enemies) {
+    if (
+      chkForDraw(
+        Math.trunc(e.x + drawRect.left),
+        Math.trunc(e.y + drawRect.top),
+        screenPos,
+        KCharacterSpriteSize,
+        drawRect,
+        screenHeight,
+      )
+    ) {
+      drawer.drawHumanShadow(
+        Math.trunc(drawRect.left + e.x - screenPos.x + xo),
+        Math.trunc(drawRect.top + e.y - screenPos.y + yo),
+        5,
+        sprites.shadowSprite.pixels,
+        fb,
+        drawRect,
+      );
+    }
+  }
   for (const p of players) {
     if (p.dead) continue;
     if (
@@ -997,7 +1033,7 @@ export function drawCharacterShadows(scene: ActorScene, screenHeight: number): v
         Math.trunc(p.x + drawRect.left),
         Math.trunc(p.y + drawRect.top),
         screenPos,
-        28,
+        KCharacterSpriteSize,
         drawRect,
         screenHeight,
       )
@@ -1092,18 +1128,150 @@ export function drawBullets(scene: ActorScene, screenHeight: number): void {
 }
 
 /**
+ * `CGameDrawManager::DrawEffects` — draws effects whose `Order()` equals `pos`.
+ * Lights are deferred to M5.
+ */
+export function drawEffects(
+  scene: ActorScene,
+  effects: SimEffect[],
+  pos: number,
+  screenHeight: number,
+): void {
+  const { drawer, fb, drawRect, screenPos, sprites } = scene;
+  for (const eff of effects) {
+    const t = EffectTypes[eff.typeId];
+    if (t.order !== pos) continue;
+    const chkX = Math.trunc(eff.x + drawRect.left) + -Math.trunc(t.xs / 2);
+    const chkY = Math.trunc(eff.y + drawRect.top) + -Math.trunc(t.ys / 2);
+    if (!chkForDraw(chkX, chkY, screenPos, Math.max(t.xs, t.ys), drawRect, screenHeight)) continue;
+    if (!t.sprite) continue;
+    const x = Math.trunc(drawRect.left + eff.x - screenPos.x);
+    const y = Math.trunc(drawRect.top + eff.y - screenPos.y);
+    const number = Math.trunc(eff.counter / t.delay);
+    const offset = t.offset + (t.xs + 1) * number + 321;
+    const draw = t.transparentSprite ? drawer.drawTransSprite : drawer.drawSprite;
+    draw.call(
+      drawer,
+      x - Math.trunc(t.xs / 2),
+      y - Math.trunc(t.ys / 2),
+      t.xs,
+      t.ys,
+      sprites.spriteOf(EGameSprite.Effect),
+      offset,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/** `CGameDrawManager::DrawBodyParts`. */
+export function drawBodyParts(scene: ActorScene, screenHeight: number): void {
+  const { drawer, fb, drawRect, screenPos, bodyparts, sprites } = scene;
+  for (const bp of bodyparts) {
+    if (
+      !chkForDraw(
+        Math.trunc(bp.x + drawRect.left),
+        Math.trunc(bp.y + drawRect.top),
+        screenPos,
+        KBodyPartSpriteSize,
+        drawRect,
+        screenHeight,
+      )
+    )
+      continue;
+    drawer.drawSprite(
+      Math.trunc(drawRect.left + bp.x - screenPos.x),
+      Math.trunc(drawRect.top + bp.y - screenPos.y),
+      KBodyPartSpriteSize,
+      KBodyPartSpriteSize,
+      sprites.spriteOf(EGameSprite.BodyPart),
+      BodyPartTypes[bp.typeId].spriteOffset,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/** `CGameDrawManager::DrawCrates` (the crate light is deferred to M5). */
+export function drawCrates(scene: ActorScene, screenHeight: number): void {
+  const { drawer, fb, drawRect, screenPos, crates, sprites } = scene;
+  for (const c of crates) {
+    if (!c.inUse || c.textCounter !== 0) continue;
+    if (
+      !chkForDraw(
+        Math.trunc(c.x + drawRect.left),
+        Math.trunc(c.y + drawRect.top),
+        screenPos,
+        14,
+        drawRect,
+        screenHeight,
+      )
+    )
+      continue;
+    drawer.drawSprite(
+      drawRect.left + c.x - screenPos.x,
+      drawRect.top + c.y - screenPos.y,
+      14,
+      14,
+      sprites.spriteOf(EGameSprite.Crate),
+      c.kind * 14,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/** `CGameDrawManager::DrawAliveEnemies`. */
+export function drawAliveEnemies(scene: ActorScene, screenHeight: number): void {
+  const { drawer, fb, drawRect, screenPos, enemies, sprites } = scene;
+  for (const e of enemies) {
+    if (
+      !chkForDraw(
+        Math.trunc(e.x + drawRect.left),
+        Math.trunc(e.y + drawRect.top),
+        screenPos,
+        KCharacterSpriteSize,
+        drawRect,
+        screenHeight,
+      )
+    )
+      continue;
+    let sprno =
+      KEnemySpriteAmount - Math.trunc(enemySpriteAngle(e) / 2) + Math.trunc(KEnemySpriteAmount / 4);
+    while (sprno >= KEnemySpriteAmount) sprno -= KEnemySpriteAmount;
+    while (sprno < 0) sprno += KEnemySpriteAmount;
+    const offset = e.anim * 29 * (KEnemySpriteAmount * 29) + sprno * 29;
+    drawer.drawSprite(
+      Math.trunc(drawRect.left + e.x - screenPos.x),
+      Math.trunc(drawRect.top + e.y - screenPos.y),
+      KCharacterSpriteSize,
+      KCharacterSpriteSize,
+      sprites.spriteOf(EGameSprite.Enemy0 + EnemyTypes[e.typeId].sprite),
+      offset,
+      fb,
+      drawRect,
+    );
+  }
+}
+
+/**
  * Composes a full in-game frame for the M3 subset (floor, character shadows,
  * bullets, players, block shadows, camera cone, walls) in the original order.
  * Effects, crates, enemies, lights and HUD arrive in later milestones.
  */
 export function drawFrame(scene: ActorScene, screenHeight: number): void {
-  const { level, sprites, drawer, fb, dark, drawRect, screenPos } = scene;
+  const { level, sprites, drawer, fb, dark, drawRect, screenPos, effects } = scene;
   drawFloor(level, sprites, drawer, fb, dark, drawRect, screenPos);
   drawPlayers(scene, false, screenHeight);
+  drawEffects(scene, effects, 0, screenHeight);
+  drawBodyParts(scene, screenHeight);
   drawCharacterShadows(scene, screenHeight);
+  drawCrates(scene, screenHeight);
   drawBullets(scene, screenHeight);
+  drawAliveEnemies(scene, screenHeight);
   drawPlayers(scene, true, screenHeight);
   drawShadows(level, drawer, fb, drawRect, screenPos);
+  drawEffects(scene, effects, 1, screenHeight);
   drawBlackPartsOfLevel(scene);
   drawWalls(scene);
 }

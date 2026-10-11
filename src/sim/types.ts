@@ -347,6 +347,415 @@ export interface WeaponType {
   consumesBullets: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// M4 tables: effects, body parts, enemies (common/types.cpp + the base classes)
+// ---------------------------------------------------------------------------
+
+/** `TLightTable` (defines.h). */
+export const enum LightTable {
+  NoLight = -1,
+  Normal = 0,
+  Explosion,
+  Yellow,
+  Red,
+}
+
+export const EBodyPartAmount = 10;
+export const EEnemyAmount = 10;
+export const EEffectAmount = 14;
+
+/** `TBodyPart`. */
+export const enum BodyPartId {
+  Head = 0,
+  Arm,
+  Chest,
+  Entrails,
+  LeftLeg,
+  RightLeg,
+  Shit,
+  BurnedChest,
+  Skull,
+  Bones,
+}
+
+/** `IBodyPartType` / `CBodyPartBase` + the ten types. */
+export interface BodyPartType {
+  slow: number;
+  kickspeed: number;
+  bounce: boolean;
+  dropBlood: boolean;
+  spriteOffset: number;
+}
+
+export const BodyPartTypes: readonly BodyPartType[] = [
+  { slow: -0.04, kickspeed: 3.8, bounce: true, dropBlood: true, spriteOffset: 0 }, // Head
+  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 21 }, // Arm
+  { slow: -0.07, kickspeed: 2.5, bounce: false, dropBlood: true, spriteOffset: 42 }, // Chest
+  { slow: -0.06, kickspeed: 2.5, bounce: false, dropBlood: true, spriteOffset: 63 }, // Entrails
+  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 84 }, // LeftLeg
+  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 105 }, // RightLeg
+  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 126 }, // Shit
+  { slow: -0.05, kickspeed: 3.0, bounce: false, dropBlood: false, spriteOffset: 252 }, // BurnedChest
+  { slow: -0.04, kickspeed: 4.0, bounce: true, dropBlood: false, spriteOffset: 273 }, // Skull
+  { slow: -0.05, kickspeed: 3.0, bounce: false, dropBlood: false, spriteOffset: 294 }, // Bones
+];
+
+/** `IEffectType` / `CEffectBase` + the effect types. */
+export interface EffectType {
+  tCount: number;
+  order: number;
+  delay: number;
+  random: boolean;
+  sprite: boolean;
+  xs: number;
+  ys: number;
+  offset: number;
+  lightTable: LightTable;
+  lightSize: number;
+  lightAddConst: number;
+  lightAddMultiplier: number;
+  lightOverloadMul: number;
+  heavyOverloadMul: number;
+  afterDeathEffect: EffectId;
+  transparentSprite: boolean;
+}
+
+function effect(overrides: Partial<EffectType>): EffectType {
+  return {
+    tCount: 0,
+    order: 0,
+    delay: 0,
+    random: false,
+    sprite: false,
+    xs: 0,
+    ys: 0,
+    offset: 0,
+    lightTable: LightTable.NoLight,
+    lightSize: 0,
+    lightAddConst: 0,
+    lightAddMultiplier: 0,
+    lightOverloadMul: 1,
+    heavyOverloadMul: 1,
+    afterDeathEffect: EffectId.None,
+    transparentSprite: false,
+    ...overrides,
+  };
+}
+
+/** Indexed by {@link EffectId}. */
+export const EffectTypes: readonly EffectType[] = [
+  effect({
+    tCount: 4,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    afterDeathEffect: EffectId.BloodOnGround,
+  }),
+  effect({
+    tCount: 4,
+    order: 0,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    offset: 13 * 4,
+    lightTable: LightTable.Normal,
+    lightSize: 1,
+    lightAddMultiplier: -1,
+  }),
+  effect({
+    tCount: 9,
+    order: 1,
+    delay: 8,
+    xs: 25,
+    ys: 25,
+    offset: 320 * 13,
+    lightTable: LightTable.Explosion,
+    lightSize: 7,
+    lightAddConst: 5,
+    lightAddMultiplier: -0.8,
+  }),
+  effect({
+    tCount: 8,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    offset: 13 * 8,
+    lightTable: LightTable.Normal,
+    lightAddMultiplier: -1,
+  }),
+  effect({
+    tCount: 8,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    offset: 13 * 8,
+    lightTable: LightTable.Yellow,
+    lightAddMultiplier: -1,
+  }),
+  effect({
+    tCount: 8,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    offset: 13 * 8,
+    lightTable: LightTable.Red,
+    lightAddMultiplier: -1,
+  }),
+  effect({
+    tCount: 12,
+    order: 1,
+    delay: 12,
+    random: true,
+    sprite: true,
+    xs: 20,
+    ys: 20,
+    offset: 320 * 39,
+    transparentSprite: true,
+  }),
+  effect({
+    tCount: 8,
+    order: 0,
+    delay: 250,
+    random: true,
+    sprite: true,
+    xs: 6,
+    ys: 6,
+    offset: 13 * 20,
+    lightOverloadMul: 2,
+    heavyOverloadMul: 3,
+    transparentSprite: true,
+  }),
+  effect({
+    tCount: 4,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 12,
+    ys: 12,
+    offset: 13 * 16,
+    transparentSprite: true,
+  }),
+  effect({
+    tCount: 12,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 20,
+    ys: 20,
+    offset: 320 * 39,
+    transparentSprite: true,
+  }),
+  effect({
+    tCount: 7,
+    order: 1,
+    delay: 5,
+    sprite: true,
+    xs: 20,
+    ys: 20,
+    offset: 320 * 60,
+    lightTable: LightTable.Normal,
+    lightSize: 4,
+  }),
+  effect({
+    tCount: 4,
+    order: 0,
+    delay: 250,
+    random: true,
+    sprite: true,
+    xs: 6,
+    ys: 6,
+    offset: 13 * 20 + 320 * 7,
+    lightOverloadMul: 2,
+    heavyOverloadMul: 3,
+    transparentSprite: true,
+  }),
+  effect({
+    tCount: 1,
+    order: 1,
+    delay: 12,
+    lightTable: LightTable.Explosion,
+    lightAddConst: -5,
+    lightAddMultiplier: -1,
+  }),
+  effect({
+    tCount: 1,
+    order: 1,
+    delay: 38,
+    lightTable: LightTable.Explosion,
+    lightAddConst: -5,
+    lightAddMultiplier: -0.33,
+  }),
+];
+
+/** `TEnemy`. */
+export const enum EnemyId {
+  Pistolboy = 0,
+  ShotgunManiac,
+  UziRebel,
+  Commando,
+  BazookaBoy,
+  Civilian,
+  Punisher,
+  Flamer,
+  Punk,
+  GrenadeGay,
+}
+
+/** Enemy AI states (`CEnemy::TState`). */
+export const enum EnemyState {
+  Still = 0,
+  Assault,
+  WanderAround,
+}
+
+/** `IEnemyType` / `CEnemyBase` + the ten types. */
+export interface EnemyType {
+  name: string;
+  sprite: number;
+  speed: number;
+  currentWeapon: WeaponId;
+  hostile: boolean;
+  energy: number;
+  reward: number;
+  explosionDeath: boolean;
+  sightDistance: number;
+}
+
+function enemy(overrides: Partial<EnemyType> & { name: string }): EnemyType {
+  return {
+    sprite: 0,
+    speed: 0,
+    currentWeapon: WeaponId.Fist,
+    hostile: false,
+    energy: 0,
+    reward: 0,
+    explosionDeath: false,
+    sightDistance: 10 * 20,
+    ...overrides,
+  };
+}
+
+export const EnemyTypes: readonly EnemyType[] = [
+  enemy({
+    name: "Pistol Boy",
+    sprite: 0,
+    speed: 0.75,
+    currentWeapon: WeaponId.Pistol,
+    hostile: true,
+    energy: 18,
+    reward: 200,
+  }),
+  enemy({
+    name: "Shotgun Maniac",
+    sprite: 1,
+    speed: 0.75,
+    currentWeapon: WeaponId.Shotgun,
+    hostile: true,
+    energy: 28,
+    reward: 350,
+  }),
+  enemy({
+    name: "Uzi Rebel",
+    sprite: 2,
+    speed: 0.75,
+    currentWeapon: WeaponId.Uzi,
+    hostile: true,
+    energy: 40,
+    reward: 400,
+  }),
+  enemy({
+    name: "Commando",
+    sprite: 3,
+    speed: 1.0,
+    currentWeapon: WeaponId.AutoRifle,
+    hostile: true,
+    energy: 50,
+    reward: 600,
+  }),
+  enemy({
+    name: "Bazooka Boy",
+    sprite: 4,
+    speed: 0.75,
+    currentWeapon: WeaponId.RocketLauncher,
+    hostile: true,
+    energy: 40,
+    reward: 700,
+    explosionDeath: true,
+  }),
+  enemy({
+    name: "Civilian",
+    sprite: 5,
+    speed: 0.75,
+    currentWeapon: WeaponId.Fist,
+    energy: 18,
+    reward: 50,
+  }),
+  enemy({
+    name: "Punisher",
+    sprite: 6,
+    speed: 0.5,
+    currentWeapon: WeaponId.AutoShotgun,
+    hostile: true,
+    energy: 150,
+    reward: 650,
+  }),
+  enemy({
+    name: "Flamer",
+    sprite: 7,
+    speed: 0.75,
+    currentWeapon: WeaponId.FlameThrower,
+    hostile: true,
+    energy: 100,
+    reward: 600,
+    explosionDeath: true,
+  }),
+  enemy({
+    name: "Punk",
+    sprite: 8,
+    speed: 1.0,
+    currentWeapon: WeaponId.Fist,
+    hostile: true,
+    energy: 30,
+    reward: 100,
+  }),
+  enemy({
+    name: "Grenade Gay",
+    sprite: 9,
+    speed: 0.75,
+    currentWeapon: WeaponId.GrenadeLauncher,
+    hostile: true,
+    energy: 70,
+    reward: 500,
+    explosionDeath: true,
+  }),
+];
+
+/** `CLevel::TCrate`. */
+export const enum CrateKind {
+  Weapon = 0,
+  Bullet,
+  Health,
+  Money,
+  Target,
+}
+
+/** `IBulletType::ApproxDistance` — the closed-form distance a bullet travels. */
+export function approxDistance(t: BulletType): number {
+  const a1 = t.speed;
+  const n = t.time;
+  const an = a1 + (n - 1) * t.slow;
+  return Math.trunc(n * ((a1 + an) / 2));
+}
+
 function weapon(overrides: Partial<WeaponType>): WeaponType {
   return {
     name: "",

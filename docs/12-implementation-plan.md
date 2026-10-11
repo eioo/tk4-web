@@ -94,6 +94,16 @@ crates (all 5 types) and pickup; explosions; burning; damage/death.
 money/weapon changes vs. reference trace over many ticks.
 ⚠️ `std::sort` instability; RNG ordering in `Explo`/`GetDamage`.
 
+**Status:** done (simulation + browser rendering). `src/sim/types.ts` gained the
+effect/body-part/enemy tables; `src/sim/entities.ts` the entity records; `src/sim/world.ts`
+the full `RunFrame` order (`PerFrameCalc`, `CheckBurn`, `ChkWakeUps`, `EnemyUpdate`,
+`ShowSteam`, `RollEffects`), `CEnemy` AI/shooting/`GetDamage`, `CEffect::Roll`,
+`CBodyPart::Move`/kick/push, `CCrate` placement/pickup/text (font width) and
+`Explo` body-part push. The browser renders enemies, effects, body parts and crates
+(`src/render/draw-manager.ts`). A 400-tick seeded replay is **byte-for-byte identical**
+to `tools/reference/sim_gen.cpp` (sha256 `016f2b8e…`, fixtures committed). Lights/HUD
+(crate text, target laser, energy) are M5.
+
 ---
 
 ## M5 — Full rendering parity (lights, HUD, fonts)

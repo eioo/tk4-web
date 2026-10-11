@@ -93,9 +93,25 @@ export function addMovement(pos: Float2, angle: number, speed: number): Float2 {
   };
 }
 
-/** `CCoord<float>::SetMovement` — returns `(cos*speed, sin*speed)`. */
+/** `CCoord<T>::SetMovement` — returns `(cos*speed, sin*speed)`. */
 export function setMovement(angle: number, speed: number): Float2 {
   return { x: f32(cose(angle) * speed), y: f32(sine(angle) * speed) };
+}
+
+/**
+ * `CCoord<int>::AddMovement` — the movement component is truncated to int
+ * *before* being added to the integer position (unlike the float overload).
+ */
+export function addMovementI(pos: Int2, angle: number, speed: number): Int2 {
+  return {
+    x: pos.x + Math.trunc(f32(cose(angle) * speed)),
+    y: pos.y + Math.trunc(f32(sine(angle) * speed)),
+  };
+}
+
+/** `CCoord<int>::SetMovement`. */
+export function setMovementI(angle: number, speed: number): Int2 {
+  return { x: Math.trunc(f32(cose(angle) * speed)), y: Math.trunc(f32(sine(angle) * speed)) };
 }
 
 /** `CCoord<T>` → `CCoord<int>` conversion (truncation toward zero). */

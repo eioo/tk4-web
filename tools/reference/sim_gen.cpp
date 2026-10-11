@@ -89,10 +89,35 @@ static bool ReadLevelDump(Level& lv, const char* path) {
 	}
 	lv.iOutBlock.iType = readI32();
 	lv.iOutBlock.iNumber = readI32();
-	lv.iOutBlock.iHeight = version < 6 ? KBlockHeights[lv.iOutBlock.iNumber] : readI32();
+	int outH = readI32();
+	lv.iOutBlock.iHeight = version < 6 ? KBlockHeights[lv.iOutBlock.iNumber] : outH;
 	unsigned int startCount = readU32();
 	for (unsigned int i = 0; i < startCount; i++) {
 		CoordI c; c.x = readI32(); c.y = readI32(); lv.iPlStart.push_back(c);
+	}
+
+	// ---- M4 section ----
+	readI32(); // timeLimit (unused by the sim)
+	for (int a = 0; a < 10; a++) lv.iGeneralEnemies[a] = readI32();
+	unsigned int enemyCount = readU32();
+	for (unsigned int i = 0; i < enemyCount; i++) {
+		Level::EnemyCoord e; e.type = readI32(); e.x = readI32(); e.y = readI32();
+		lv.iEnemy.push_back(e);
+	}
+	unsigned int placedCount = readU32();
+	for (unsigned int i = 0; i < placedCount; i++) {
+		Level::CrateCoord c; c.type1 = readI32(); c.type2 = readI32(); c.x = readI32(); c.y = readI32();
+		lv.iPlacedCratesNormal.push_back(c);
+	}
+	unsigned int randCount = readU32();
+	for (unsigned int i = 0; i < randCount; i++) {
+		Level::RandomCrate c; c.type1 = readI32(); c.type2 = readI32(); c.amount = readI32();
+		lv.iRandomCratesNormal.push_back(c);
+	}
+	unsigned int steamCount = readU32();
+	for (unsigned int i = 0; i < steamCount; i++) {
+		Level::SteamCoord s; s.x = readI32(); s.y = readI32(); s.angle = readI32(); s.speed = readI32();
+		lv.iSteams.push_back(s);
 	}
 	free(buf);
 	ModifyBorderBlocks(lv);
@@ -114,13 +139,19 @@ static void RunReplay(const char* levelDump, const char* scriptPath, const char*
 	if (!ReadScript(scriptPath, s)) return;
 	SimWorld w;
 	if (!ReadLevelDump(w.level, levelDump)) return;
-	(void)dataDir;
+	if (dataDir && dataDir[0]) {
+		std::string fontPath = std::string(dataDir) + "/fnts/menu15x18dark.fnt";
+		if (!w.font.Load(fontPath.c_str()))
+			fprintf(stderr, "warning: could not load font %s\n", fontPath.c_str());
+	}
 	w.rng.Seed((unsigned int)s.seed);
 	w.mouseSensitivity = s.sensitivity;
 	w.mouseOwner = s.mouseOwner;
 	w.players = s.players;
 	for (size_t i = 0; i < w.players.size(); i++)
 		if (w.players[i].local) SimInitScr(w.players[i], RectI(0, 0, 640, 480));
+
+	SimSpawnEntities(w);
 
 	FILE* f = fopen(outPath, "wb");
 	auto wI32 = [&](int v) { fwrite(&v, 4, 1, f); };
@@ -138,23 +169,61 @@ static void RunReplay(const char* levelDump, const char* scriptPath, const char*
 			wI32(p.screenPos.x); wI32(p.screenPos.y); wI32(p.curWeapon); wI32(p.secWeapon);
 			wI32(p.anim); wI32(p.dead); wI32(p.hit); wI32(p.walk); wI32(p.shootCount);
 			wI32(p.loadCounter); wI32(p.loadCounter2); wI32(p.secondaryCounter);
+			wI32(p.targetAngle); wI32(p.kick); wI32(p.burning); wI32(p.cash);
+			wI32(p.targetSystem ? 1 : 0);
 			for (int a = 0; a < W_AMOUNT; a++) wI32(p.weapons[a]);
 			for (int a = 0; a < B_AMOUNT; a++) wI32(p.bullets[a]);
 		}
 		wI32((int)w.bullets.size());
 		for (size_t i = 0; i < w.bullets.size(); i++) {
 			SimBullet& b = w.bullets[i];
-			wF32(b.location.x); wF32(b.location.y); wF32(b.spriteAngle); wF32(b.speed);
-			wI32(b.angle); wI32(b.counter); wI32(b.typeId);
+			wF32(b.location.x); wF32(b.location.y); wF32(b.spriteAngle); wF32(b.speed); wF32(b.share);
+			wI32(b.angle); wI32(b.counter); wI32(b.typeId); wI32(b.ownerId);
 		}
+		wI32((int)w.enemies.size());
+		for (size_t i = 0; i < w.enemies.size(); i++) {
+			SimEnemy& e = w.enemies[i];
+			wF32(e.loc.x); wF32(e.loc.y); wF32(e.angle); wF32(e.energy); wF32(e.pushPower);
+			wI32(e.targetAngle); wI32(e.pushAngle); wI32(e.walk); wI32(e.fire); wI32(e.anim);
+			wI32(e.loadCounter); wI32(e.shootCount); wI32(e.burning); wI32(e.state);
+			wI32(e.walkCounter); wI32(e.curWeapon);
+		}
+		wI32((int)w.bodyparts.size());
+		for (size_t i = 0; i < w.bodyparts.size(); i++) {
+			SimBodyPart& bp = w.bodyparts[i];
+			wF32(bp.loc.x); wF32(bp.loc.y); wF32(bp.speed);
+			wI32(bp.angle); wI32(bp.type);
+		}
+		wI32((int)w.effects.size());
+		for (size_t i = 0; i < w.effects.size(); i++) {
+			SimFx& e = w.effects[i];
+			wF32(e.loc.x); wF32(e.loc.y);
+			wI32(e.counter); wI32(e.type);
+		}
+		wI32((int)w.crates.size());
+		for (size_t i = 0; i < w.crates.size(); i++) {
+			SimCrate& c = w.crates[i];
+			wF32(c.textCounter); wF32(c.textCounter2);
+			wI32(c.loc.x); wI32(c.loc.y); wI32(c.inUse); wI32(c.textAngle); wI32(c.wakeUpCounter);
+			wI32(c.kind); wI32(c.value);
+		}
+		wI32((int)w.deadEnemies.size());
+		for (size_t i = 0; i < w.deadEnemies.size(); i++) {
+			wI32(w.deadEnemies[i].x); wI32(w.deadEnemies[i].y);
+		}
+		wI32(w.steamAnimationCount);
 	}
 	fclose(f);
-	printf("replay %d ticks -> %s (%zu effectSpawns)\n", s.ticks, outPath, (size_t)w.effectSpawns);
+	printf("replay %d ticks -> %s (enemies=%zu bodyparts=%zu effects=%zu crates=%zu)\n",
+		s.ticks, outPath, w.enemies.size(), w.bodyparts.size(), w.effects.size(), w.crates.size());
 }
 
 int main(int argc, char** argv) {
 	InitBulletTypes();
 	InitWeaponTypes();
+	InitEffectTypes();
+	InitBodyPartTypes();
+	InitEnemyTypes();
 	if (argc >= 3 && std::string(argv[1]) == "math") {
 		WriteMath(argv[2]);
 		return 0;

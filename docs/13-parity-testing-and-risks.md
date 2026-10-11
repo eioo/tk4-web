@@ -28,18 +28,22 @@ near-verbatim and need only libm (build them all with `bun run reference`):
 - `tools/reference/render_gen.cpp` — static level frame (floor, shadows, camera-cone black
   parts, pseudo-3D walls) from a raw block dump produced by `tools/reference/dump-level.ts`.
 - `tools/reference/simreference.h` + `tools/reference/sim_gen.cpp` — the **simulation**:
-  `CMath`, glibc `rand()`, the weapon/bullet tables, `CCharacter::Move`, `CPlayer`
-  (input, movement, shooting, damage), `CBullet::Move` and the per-tick `RunFrame` order.
-  `sim_gen replay <leveldump> <script> <out.trace>` writes a per-tick state trace; the
-  script is produced by `tools/reference/dump-script.ts` from
-  `src/sim/replay.ts#buildScript` (the same script the TS test uses).
+  `CMath`, glibc `rand()`, the weapon/bullet/effect/body-part/enemy tables, `CCharacter::Move`,
+  `CPlayer` (input, movement, shooting, damage), `CEnemy` (AI, shooting), `CEffect` (roll),
+  `CBodyPart` (move/kick/push), `CCrate` (placement/pickup/text), `CLevelRuntimeData::Explo`
+  and the per-tick `RunFrame` order.
+  `sim_gen replay <leveldump> <script> <out.trace> <datadir>` writes a per-tick state trace
+  (players, bullets, enemies, body parts, effects, crates, dead enemies); the script is
+  produced by `tools/reference/dump-script.ts` from `src/sim/replay.ts#buildScript` (the same
+  script the TS test uses). `<datadir>` is the original `data/` dir, used to load
+  `fnts/menu15x18dark.fnt` for the crate pickup-text counter.
 
 The TypeScript tests hash the port's output and compare against the oracle's output
 (`sha256` over the pixel buffer / trace), giving byte-exact verification without a
 screenshot workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors`, the
 static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`
-and a 400-tick player/bullet replay. The full reference build is still needed for audio
-and menu parity.
+and a 400-tick player/bullet/enemy/effect replay. The full reference build is still needed
+for audio and menu parity.
 
 ## Determinism
 
@@ -90,7 +94,10 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   and push but is never moved (the original would move it on its own client). Fine for
   single-machine traces; multiplayer emulation is out of scope.
 - **`std::sort` not stable.** Enemies/body parts are sorted by X each tick; ties can
-  reorder. Either replicate the exact algorithm or pin a reference where ties are absent.
+  reorder. The oracle uses `std::stable_sort` and the port uses `Array.prototype.sort`
+  (stable per spec), so the two agree with each other regardless of ties; this may still
+  differ from the original's (unstable) `std::sort` for exact X ties — pin a reference
+  where ties are absent when comparing against a real build.
 - **Catch-up ticks.** When a display frame is slow, the original runs multiple ticks,
   consuming more RNG per frame. Parity tests should use the deterministic fixed-tick mode.
 - **`time(NULL)` seeds.** A runtime seed means two live runs differ (as in the original).
@@ -105,10 +112,13 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
    - `RotateSprites` etc. vs. reference images.
 2. **Golden state traces**
    - Seeded scenario scripts (spawn, run N ticks, issue inputs) produce a trace:
-     entity positions/angles/HP, bullet counts, RNG draw count, money.
+     entity positions/angles/HP, bullet/enemy/body-part/effect/crate state, money.
    - Compare port trace to a reference trace; assert equality (or a pinned, documented
-     acceptable difference). M3: `tools/reference/fixtures/replay1.{script,trace}` and
-     `src/sim/__test__/replay.test.ts` (400 ticks, byte-identical).
+     acceptable difference). M4: `tools/reference/fixtures/replay1.{script,trace}` and
+     `src/sim/__test__/replay.test.ts` (400 ticks, byte-identical: enemy spawn/AI/shooting,
+     effect roll, steam, bullets vs enemies, crates placed). Enemy death/body parts/crate
+     pickup are exercised interactively in the browser; a dedicated kill/pickup scenario is
+     planned.
 3. **Golden frames**
    - At fixed scenarios, diff the presented framebuffer against a reference screenshot
      using pixel-diff/SSIM. Allow tolerance only for documented non-determinism.

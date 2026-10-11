@@ -28,3 +28,39 @@ export function decodeFnt(bytes: Uint8Array): Font {
   }
   return { width, height, glyphs: bytes.slice(start, start + glyphBytes) };
 }
+
+/**
+ * `CFonts::Length` — the rendered width of a string, used by crate pickup text.
+ * Glyph horizontal padding (transparent columns) is trimmed per glyph; an empty
+ * glyph (e.g. space) counts as `width / 2`.
+ */
+export function fontLength(font: Font, text: string): number {
+  const { width, height, glyphs } = font;
+  const fsize = width * height;
+  let length = 0;
+  for (let a = 0; a < text.length; a++) {
+    const code = text.charCodeAt(a) & 0xff;
+    const base = code * fsize;
+    let c = 0;
+    let col = 0;
+    while (col === 0 && c < width) {
+      for (let d = 0; d < height; d++) if (glyphs[base + d * width + c] !== 0) col = 1;
+      if (col === 0) c++;
+    }
+    const xpos1 = c;
+    c = width - 1;
+    col = 0;
+    while (col === 0 && c > 0) {
+      for (let d = 0; d < height; d++) if (glyphs[base + d * width + c] !== 0) col = 1;
+      if (col === 0) c--;
+    }
+    let xpos2 = c;
+    let left = xpos1;
+    if (left > xpos2) {
+      left = 0;
+      xpos2 = Math.trunc(width / 2);
+    }
+    length += xpos2 - left + 1;
+  }
+  return length;
+}

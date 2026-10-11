@@ -1,6 +1,7 @@
 import { createLoop } from "./core/loop";
 import { decodePaletteTab } from "./data/color-tables";
 import { mergeIni } from "./data/config";
+import { decodeFnt, fontLength } from "./data/font";
 import { loadIngameData } from "./data/ingame-data";
 import { loadLevel } from "./data/level";
 import { drawFrame, toDrawSprites } from "./render/draw-manager";
@@ -76,14 +77,16 @@ async function boot(): Promise<void> {
   window.addEventListener("resize", () => presenter.fit());
   root.appendChild(presenter.canvas);
 
-  const [cfgText, paletteTabBytes, levelBytes] = await Promise.all([
+  const [cfgText, paletteTabBytes, levelBytes, fontBytes] = await Promise.all([
     loadText("default.ini"),
     loadBytes("palette.tab"),
     loadBytes(LEVEL_PATH),
+    loadBytes("fnts/menu15x18dark.fnt"),
   ]);
   const level = loadLevel(levelBytes);
   const ingame = await loadIngameData(mergeIni(cfgText), loadBytes);
   const sprites = toDrawSprites(ingame);
+  const font = decodeFnt(fontBytes);
 
   const fb = new Framebuffer(WIDTH, HEIGHT);
   const dark = new Uint8Array(WIDTH * HEIGHT);
@@ -94,9 +97,11 @@ async function boot(): Promise<void> {
   const world = new SimWorld(level, (Date.now() / 1000) >>> 0);
   world.mouseOwner = 0;
   world.mouseSensitivity = 0.5;
+  world.textLength = (text) => fontLength(font, text);
   const player = makePlayer(start.x, start.y);
   world.players = [player];
   world.initScr(player, drawRect);
+  world.spawnEntities();
   // ---- input ----
   const held = new Set<string>();
   let mouseDX = 0;
@@ -180,6 +185,10 @@ async function boot(): Promise<void> {
           playerLocation: { x: player.x, y: player.y },
           players: world.players,
           bullets: world.bullets,
+          enemies: world.enemies,
+          bodyparts: world.bodyparts,
+          effects: world.effects,
+          crates: world.crates,
         },
         HEIGHT,
       );
@@ -196,6 +205,11 @@ async function boot(): Promise<void> {
     weapon: player.curWeapon,
     ammo: player.bullets[WeaponTypes[player.curWeapon].bulletType],
     bullets: world.bullets.length,
+    enemies: world.enemies.length,
+    crates: world.crates.filter((c) => c.inUse).length,
+    bodyparts: world.bodyparts.length,
+    effects: world.effects.length,
+    cash: player.cash,
   });
 }
 

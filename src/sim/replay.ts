@@ -9,6 +9,7 @@
  * collisions and damage are all exercised.
  */
 
+import { decodeFnt, fontLength } from "../data/font";
 import { type Level, loadLevel } from "../data/level";
 import { makeRect } from "../render/rect";
 import { BulletId, WeaponId } from "./types";
@@ -174,8 +175,12 @@ export function serializeScript(s: ReplayScript): Uint8Array {
   return new Uint8Array(buf, 0, o);
 }
 
-function worldFromScript(level: Level, s: ReplayScript): SimWorld {
+function worldFromScript(level: Level, s: ReplayScript, fontBytes?: Uint8Array): SimWorld {
   const w = new SimWorld(level, s.seed);
+  if (fontBytes) {
+    const font = decodeFnt(fontBytes);
+    w.textLength = (text) => fontLength(font, text);
+  }
   w.mouseSensitivity = s.sensitivity;
   w.mouseOwner = s.mouseOwner;
   w.players = s.players.map((rp) => {
@@ -190,13 +195,18 @@ function worldFromScript(level: Level, s: ReplayScript): SimWorld {
     if (p.local) w.initScr(p, DRAW_RECT);
     return p;
   });
+  w.spawnEntities();
   return w;
 }
 
 /** Runs the replay and returns the same trace bytes `sim_gen` writes. */
-export function runReplay(levelBytes: Uint8Array, s: ReplayScript): Uint8Array {
+export function runReplay(
+  levelBytes: Uint8Array,
+  s: ReplayScript,
+  fontBytes?: Uint8Array,
+): Uint8Array {
   const level = loadLevel(levelBytes);
-  const w = worldFromScript(level, s);
+  const w = worldFromScript(level, s, fontBytes);
 
   const parts: number[] = [];
   const pushI32 = (v: number): void => {
@@ -231,6 +241,11 @@ export function runReplay(levelBytes: Uint8Array, s: ReplayScript): Uint8Array {
       pushI32(p.loadCounter);
       pushI32(p.loadCounter2);
       pushI32(p.secondaryCounter);
+      pushI32(p.targetAngle);
+      pushI32(p.kick);
+      pushI32(p.burning);
+      pushI32(p.cash);
+      pushI32(p.targetSystem ? 1 : 0);
       for (let a = 0; a < 13; a++) pushI32(p.weapons[a] ?? 0);
       for (let a = 0; a < 12; a++) pushI32(p.bullets[a] ?? 0);
     }
@@ -240,10 +255,64 @@ export function runReplay(levelBytes: Uint8Array, s: ReplayScript): Uint8Array {
       pushF32(b.y);
       pushF32(b.spriteAngle);
       pushF32(b.speed);
+      pushF32(b.share);
       pushI32(b.angle);
       pushI32(b.counter);
       pushI32(b.typeId);
+      pushI32(b.ownerId);
     }
+    pushI32(w.enemies.length);
+    for (const e of w.enemies) {
+      pushF32(e.x);
+      pushF32(e.y);
+      pushF32(e.angle);
+      pushF32(e.energy);
+      pushF32(e.pushPower);
+      pushI32(e.targetAngle);
+      pushI32(e.pushAngle);
+      pushI32(e.walk);
+      pushI32(e.fire);
+      pushI32(e.anim);
+      pushI32(e.loadCounter);
+      pushI32(e.shootCount);
+      pushI32(e.burning);
+      pushI32(e.state);
+      pushI32(e.walkCounter);
+      pushI32(e.curWeapon);
+    }
+    pushI32(w.bodyparts.length);
+    for (const bp of w.bodyparts) {
+      pushF32(bp.x);
+      pushF32(bp.y);
+      pushF32(bp.speed);
+      pushI32(bp.angle);
+      pushI32(bp.typeId);
+    }
+    pushI32(w.effects.length);
+    for (const eff of w.effects) {
+      pushF32(eff.x);
+      pushF32(eff.y);
+      pushI32(eff.counter);
+      pushI32(eff.typeId);
+    }
+    pushI32(w.crates.length);
+    for (const c of w.crates) {
+      pushF32(c.textCounter);
+      pushF32(c.textCounter2);
+      pushI32(c.x);
+      pushI32(c.y);
+      pushI32(c.inUse);
+      pushI32(c.textAngle);
+      pushI32(c.wakeUpCounter);
+      pushI32(c.kind);
+      pushI32(c.value);
+    }
+    pushI32(w.deadEnemies.length);
+    for (const d of w.deadEnemies) {
+      pushI32(d.x);
+      pushI32(d.y);
+    }
+    pushI32(w.steamAnimationCount);
   }
   return new Uint8Array(parts);
 }

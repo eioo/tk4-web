@@ -16,6 +16,10 @@
 
 #include "tkreference.h"
 #include <cstdint>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
 
 #ifndef ANGLEFIX
 #define ANGLEFIX(a) { while (a >= 360) a -= 360; while (a < 0) a += 360; }
@@ -46,6 +50,15 @@ const float KPlayerNormalSpeed = 0.75f;
 const float KPlayerRotationSpeed = 3.4f;
 const int KPlayerMaxEnergy = 100;
 const int KStraightTolerance = 10;
+const int KShieldEnergyAmount = 10;
+const int KBodyPartSpriteSize = 20;
+const int KEnemyRotSpeedInt = 3;
+const int KMaxEffectsInGame = 4000;
+const int KLightOverloadLimit = 2000;
+const int KHeavyOverloadLimit = 3000;
+const int KTooManyTries = 100000;
+const int KCrateWakeupDelay = 1250;
+static const int KSteamRates[8] = { 30, 20, 10, 10, 8, 8, 6, 6 };
 
 // ---- CMath (float sine/cosine tables) ----
 struct SimMath {
@@ -178,6 +191,144 @@ static void InitWeaponTypes() {
 	gWeapons[W_GRENADE] = { "Grenade Launcher", 3, false, 2000, 50, 1, 1, 10, true, B_GREN, 0, true };
 }
 
+// ---- M4: effect / body part / enemy type tables ----
+enum SimBodyPartId { BP_HEAD = 0, BP_ARM, BP_CHEST, BP_ENTRAILS, BP_LLEG, BP_RLEG, BP_SHIT,
+	BP_BURNED, BP_SKULL, BP_BONES, BP_AMOUNT };
+enum SimEnemyId { EN_PISTOL = 0, EN_SHOTGUN, EN_UZI, EN_COMMANDO, EN_BAZOOKA, EN_CIVILIAN,
+	EN_PUNISHER, EN_FLAMER, EN_PUNK, EN_GRENADE, EN_AMOUNT };
+enum SimEnemyState { ES_STILL = 0, ES_ASSAULT, ES_WANDER };
+enum SimCrateKind { CK_WEAPON = 0, CK_BULLET, CK_HEALTH, CK_MONEY, CK_TARGET };
+enum SimLightTable { SL_NOLIGHT = -1, SL_NORMAL = 0, SL_EXPLOSION, SL_YELLOW, SL_RED };
+
+struct EffectType {
+	int tCount, order, delay; bool random; bool sprite; int xs, ys, offset;
+	int lightTable, lightSize, lightAddConst; float lightAddMul;
+	int lightOLMul, heavyOLMul; int afterDeath; bool transparent;
+};
+
+static EffectType MakeEffect() {
+	EffectType e;
+	e.tCount = 0; e.order = 0; e.delay = 0; e.random = false; e.sprite = false; e.xs = 0; e.ys = 0;
+	e.offset = 0; e.lightTable = SL_NOLIGHT; e.lightSize = 0; e.lightAddConst = 0; e.lightAddMul = 0;
+	e.lightOLMul = 1; e.heavyOLMul = 1; e.afterDeath = SE_NONE; e.transparent = false;
+	return e;
+}
+
+static EffectType gEffects[14];
+static void InitEffectTypes() {
+	for (int i = 0; i < 14; i++) gEffects[i] = MakeEffect();
+	{ EffectType& e = gEffects[SE_BLOOD]; e.tCount = 4; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.afterDeath = SE_BLOODG; }
+	{ EffectType& e = gEffects[SE_SMOKE]; e.tCount = 4; e.order = 0; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.offset = 13 * 4; e.lightTable = SL_NORMAL; e.lightSize = 1; e.lightAddMul = -1; }
+	{ EffectType& e = gEffects[SE_EXPLO]; e.tCount = 9; e.order = 1; e.delay = 8; e.xs = 25; e.ys = 25; e.offset = 320 * 13; e.lightTable = SL_EXPLOSION; e.lightSize = 7; e.lightAddConst = 5; e.lightAddMul = -0.8f; }
+	{ EffectType& e = gEffects[SE_METAL]; e.tCount = 8; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.offset = 13 * 8; e.lightTable = SL_NORMAL; e.lightAddMul = -1; }
+	{ EffectType& e = gEffects[SE_METALY]; e.tCount = 8; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.offset = 13 * 8; e.lightTable = SL_YELLOW; e.lightAddMul = -1; }
+	{ EffectType& e = gEffects[SE_METALR]; e.tCount = 8; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.offset = 13 * 8; e.lightTable = SL_RED; e.lightAddMul = -1; }
+	{ EffectType& e = gEffects[SE_SMOKE2]; e.tCount = 12; e.order = 1; e.delay = 12; e.random = true; e.sprite = true; e.xs = 20; e.ys = 20; e.offset = 320 * 39; e.transparent = true; }
+	{ EffectType& e = gEffects[SE_BLOODG]; e.tCount = 8; e.order = 0; e.delay = 250; e.random = true; e.sprite = true; e.xs = 6; e.ys = 6; e.offset = 13 * 20; e.lightOLMul = 2; e.heavyOLMul = 3; e.transparent = true; }
+	{ EffectType& e = gEffects[SE_GUNSMOKE]; e.tCount = 4; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 12; e.ys = 12; e.offset = 13 * 16; e.transparent = true; }
+	{ EffectType& e = gEffects[SE_STEAM]; e.tCount = 12; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 20; e.ys = 20; e.offset = 320 * 39; e.transparent = true; }
+	{ EffectType& e = gEffects[SE_TELEPORT]; e.tCount = 7; e.order = 1; e.delay = 5; e.sprite = true; e.xs = 20; e.ys = 20; e.offset = 320 * 60; e.lightTable = SL_NORMAL; e.lightSize = 4; }
+	{ EffectType& e = gEffects[SE_FOOTPRINT]; e.tCount = 4; e.order = 0; e.delay = 250; e.random = true; e.sprite = true; e.xs = 6; e.ys = 6; e.offset = 13 * 20 + 320 * 7; e.lightOLMul = 2; e.heavyOLMul = 3; e.transparent = true; }
+	{ EffectType& e = gEffects[SE_FLAME]; e.tCount = 1; e.order = 1; e.delay = 12; e.lightTable = SL_EXPLOSION; e.lightAddConst = -5; e.lightAddMul = -1; }
+	{ EffectType& e = gEffects[SE_FLAME2]; e.tCount = 1; e.order = 1; e.delay = 38; e.lightTable = SL_EXPLOSION; e.lightAddConst = -5; e.lightAddMul = -0.33f; }
+}
+
+struct BodyPartType { float slow, kickspeed; int bounce, dropBlood, spriteOffset; };
+static BodyPartType gBodyParts[BP_AMOUNT];
+static void InitBodyPartTypes() {
+	gBodyParts[BP_HEAD] = { -0.04f, 3.8f, 1, 1, 0 };
+	gBodyParts[BP_ARM] = { -0.05f, 2.8f, 0, 1, 21 };
+	gBodyParts[BP_CHEST] = { -0.07f, 2.5f, 0, 1, 42 };
+	gBodyParts[BP_ENTRAILS] = { -0.06f, 2.5f, 0, 1, 63 };
+	gBodyParts[BP_LLEG] = { -0.05f, 2.8f, 0, 1, 84 };
+	gBodyParts[BP_RLEG] = { -0.05f, 2.8f, 0, 1, 105 };
+	gBodyParts[BP_SHIT] = { -0.05f, 2.8f, 0, 1, 126 };
+	gBodyParts[BP_BURNED] = { -0.05f, 3.0f, 0, 0, 252 };
+	gBodyParts[BP_SKULL] = { -0.04f, 4.0f, 1, 0, 273 };
+	gBodyParts[BP_BONES] = { -0.05f, 3.0f, 0, 0, 294 };
+}
+
+struct EnemyType {
+	const char* name; int sprite; float speed; int currentWeapon; int hostile;
+	int energy, reward, explosionDeath, sightDistance;
+};
+static EnemyType gEnemies[EN_AMOUNT];
+static void InitEnemyTypes() {
+	for (int i = 0; i < EN_AMOUNT; i++)
+		gEnemies[i] = { "", 0, 0, W_FIST, 0, 0, 0, 0, 10 * KBlockSpriteSize };
+	gEnemies[EN_PISTOL] = { "Pistol Boy", 0, 0.75f, W_PISTOL, 1, 18, 200, 0, 200 };
+	gEnemies[EN_SHOTGUN] = { "Shotgun Maniac", 1, 0.75f, W_SHOTGUN, 1, 28, 350, 0, 200 };
+	gEnemies[EN_UZI] = { "Uzi Rebel", 2, 0.75f, W_UZI, 1, 40, 400, 0, 200 };
+	gEnemies[EN_COMMANDO] = { "Commando", 3, 1.0f, W_AUTORIFLE, 1, 50, 600, 0, 200 };
+	gEnemies[EN_BAZOOKA] = { "Bazooka Boy", 4, 0.75f, W_ROCKET, 1, 40, 700, 1, 200 };
+	gEnemies[EN_CIVILIAN] = { "Civilian", 5, 0.75f, W_FIST, 0, 18, 50, 0, 200 };
+	gEnemies[EN_PUNISHER] = { "Punisher", 6, 0.5f, W_AUTOSHOTGUN, 1, 150, 650, 0, 200 };
+	gEnemies[EN_FLAMER] = { "Flamer", 7, 0.75f, W_FLAME, 1, 100, 600, 1, 200 };
+	gEnemies[EN_PUNK] = { "Punk", 8, 1.0f, W_FIST, 1, 30, 100, 0, 200 };
+	gEnemies[EN_GRENADE] = { "Grenade Gay", 9, 0.75f, W_GRENADE, 1, 70, 500, 1, 200 };
+}
+
+static int SimApproxDistance(const BulletType& t) {
+	int a1 = t.speed, n = t.time;
+	float an = a1 + (float)(n - 1) * t.slow;
+	return (int)(n * ((a1 + an) / 2));
+}
+
+// ---- M4: entity state ----
+struct SimFx { int type = -1; CoordF loc; CoordF vec; int counter = 0; };
+struct SimBodyPart { CoordF loc; int type = 0; int angle = 0; float speed = 0; };
+struct SimEnemy {
+	int uid = -1; int type = 0; CoordF loc; float angle = 0; int targetAngle = 0;
+	float energy = 0; float pushPower = 0; int pushAngle = 0;
+	int walk = 0, fire = 0, anim = 0, loadCounter = 0, shootCount = 0;
+	int burning = 0; int fryingObserver = -1;
+	int state = ES_WANDER; int walkCounter = 0;
+	int seePlayer[16] = {0}; int curWeapon = 0;
+};
+struct SimCrate {
+	int kind = 0; int value = 0; CoordI loc; int inUse = 1;
+	float textCounter = 0, textCounter2 = 0; int textAngle = 0; CoordF textPos; int wakeUpCounter = 0;
+};
+
+// ---- small font (CFonts::Length) for crate pickup text ----
+struct SimFont {
+	int w = 0, h = 0;
+	std::vector<unsigned char> glyphs;
+	bool Load(const char* path) {
+		FILE* f = fopen(path, "rb");
+		if (!f) return false;
+		int a = fgetc(f); int b = fgetc(f);
+		w = a; h = b;
+		glyphs.assign((size_t)256 * w * h, 0);
+		fseek(f, 512, SEEK_SET);
+		size_t rd = fread(glyphs.data(), 1, glyphs.size(), f);
+		fclose(f);
+		return rd == glyphs.size();
+	}
+	int Length(const char* s) const {
+		int length = 0;
+		for (int a = 0; s[a] != 0; a++) {
+			int c = 0, col = 0;
+			while (col == 0 && c < w) {
+				for (int d = 0; d < h; d++)
+					if (glyphs[(size_t)(unsigned char)s[a] * (w * h) + d * w + c] != 0) col = 1;
+				if (col == 0) c++;
+			}
+			int xpos1 = c;
+			c = w - 1; col = 0;
+			while (col == 0 && c > 0) {
+				for (int d = 0; d < h; d++)
+					if (glyphs[(size_t)(unsigned char)s[a] * (w * h) + d * w + c] != 0) col = 1;
+				if (col == 0) c--;
+			}
+			int xpos2 = c;
+			if (xpos1 > xpos2) { xpos1 = 0; xpos2 = w / 2; }
+			length += (xpos2 - xpos1) + 1;
+		}
+		return length;
+	}
+};
+
 // ---- simulation state ----
 struct SimInput { unsigned int keys = 0; int mouseXRel = 0; unsigned int mouseButtons = 0; };
 
@@ -197,6 +348,7 @@ struct SimPlayer {
 	int curWeapon = 0, secWeapon = 0;
 	CoordI screenPos;
 	int burning = 0; int fryingObserver = -1;
+	bool targetSystem = false;
 	bool local = true;
 };
 
@@ -205,13 +357,22 @@ struct SimWorld {
 	GlibcRandom rng;
 	std::vector<SimPlayer> players;
 	std::vector<SimBullet> bullets;
+	std::vector<SimFx> effects;
+	std::vector<SimFx> newEffects;
+	std::vector<SimBodyPart> bodyparts;
+	std::vector<SimEnemy> enemies;
+	std::vector<SimCrate> crates;
+	std::vector<CoordI> deadEnemies;
 	int mouseOwner = -1;
 	float mouseSensitivity = 0.5f;
 	bool mouseRightPressed = false;
 	bool coopFrags = false;
 	bool networkNone = true;
+	bool crateRespawn = false;
 	int steamAnimationCount = 0;
+	int nextEnemyUid = 0;
 	long effectSpawns = 0;
+	SimFont font;
 };
 
 // forward decls
@@ -222,14 +383,53 @@ static void SimExplo(SimWorld&, CoordI pos, int size, float share, int owner);
 static int SimMoveBullet(SimWorld&, SimBullet&);
 static bool SimCollision(SimWorld&, CoordI p);
 static bool SimVisibility(SimWorld&, CoordF src, CoordF dst, CoordF* out);
-static bool SimCharCollision(SimWorld&, int l, int t, int r, int b, const SimPlayer* self);
+static bool SimCharCollision(SimWorld&, int l, int t, int r, int b, SimPlayer* selfP, SimEnemy* selfE);
+static bool SimEnemyGetDamage(SimWorld&, SimEnemy&, float damage, int observer);
+static void SimKillEnemy(SimWorld&, size_t index);
+static void SimEnemyGotoBulletOrigin(SimWorld&, SimEnemy&, const SimBullet&);
+static void SimBodyPartPush(SimBodyPart&, float vx, float vy);
+static void SimPlayerFootprint(SimWorld&, SimPlayer&, int side);
+static void SimEnemyFootprint(SimWorld&, SimEnemy&, int side);
+static void SimPickupCrates(SimWorld&, SimPlayer&, const RectI&);
+static void SimKickBodyParts(SimWorld&, SimPlayer&);
+
+static int SimEnemyOwnerId(const SimEnemy& e) { return -e.uid - 2; }
 
 static void SimNewEffect(SimWorld& w, int type, float x, float y, int angle, float speed) {
 	if (type == SE_NONE) return;
 	float w2 = (float)(w.level.iWidth * KBlockSpriteSize);
 	float h2 = (float)(w.level.iHeight * KBlockSpriteSize);
-	if (x >= 0 && x < w2 && y >= 0 && y < h2) w.effectSpawns++;
-	(void)angle; (void)speed;
+	if (x >= 0 && x < w2 && y >= 0 && y < h2) {
+		SimFx e;
+		e.type = type; e.loc.x = x; e.loc.y = y; e.counter = 0;
+		e.vec = SetMovF(angle, speed);
+		w.newEffects.push_back(e);
+	}
+}
+
+static void SimNewBodyPart(SimWorld& w, float x, float y, int angle, float speed, int num) {
+	SimBodyPart p;
+	p.loc.x = x; p.loc.y = y; p.angle = angle; p.speed = speed; p.type = num;
+	w.bodyparts.push_back(p);
+}
+
+static void SimNewEnemy(SimWorld& w, int type, bool waitStill, int x, int y, int angle) {
+	SimEnemy e;
+	e.uid = w.nextEnemyUid++;
+	e.type = type;
+	e.state = waitStill ? ES_STILL : ES_WANDER;
+	e.angle = (float)angle; e.targetAngle = angle;
+	e.loc.x = (float)x; e.loc.y = (float)y;
+	e.curWeapon = gEnemies[type].currentWeapon;
+	e.energy = (float)gEnemies[type].energy;
+	for (int i = 0; i < 16; i++) e.seePlayer[i] = 0;
+	w.enemies.push_back(e);
+}
+
+static void SimNewCrate(SimWorld& w, int x, int y, int kind, int value) {
+	SimCrate c;
+	c.kind = kind; c.value = value; c.loc.x = x; c.loc.y = y;
+	w.crates.push_back(c);
 }
 
 static bool SimCollision(SimWorld& w, CoordI p) { return w.level.Collision(p.x, p.y); }
@@ -237,15 +437,31 @@ static bool SimVisibility(SimWorld& w, CoordF src, CoordF dst, CoordF* out) {
 	return w.level.VisibilityCheck(src, dst, out);
 }
 
-static bool SimCharCollision(SimWorld& w, int l, int t, int r, int b, const SimPlayer* self) {
+static bool SimCharCollision(SimWorld& w, int l, int t, int r, int b, SimPlayer* selfP, SimEnemy* selfE) {
+	for (size_t i = 0; i < w.enemies.size(); i++) {
+		SimEnemy& e = w.enemies[i];
+		if (&e == selfE) continue;
+		CoordI p = ToInt2(e.loc);
+		if (p.x >= l && p.x < r && p.y >= t && p.y < b) return true;
+	}
 	for (size_t i = 0; i < w.players.size(); i++) {
 		SimPlayer& pl = w.players[i];
-		if (&pl == self) continue;
+		if (&pl == selfP) continue;
 		if (pl.dead) continue;
 		CoordI p = ToInt2(pl.location);
 		if (p.x >= l && p.x < r && p.y >= t && p.y < b) return true;
 	}
 	return false;
+}
+
+// CCoord<int> movement helpers (the movement component truncates first).
+static CoordI MovIAdd(CoordI p, int angle, float speed) {
+	CoordI r; r.x = p.x + (int)(gMath.Cose(angle) * speed); r.y = p.y + (int)(gMath.Sine(angle) * speed);
+	return r;
+}
+static CoordI MovISet(int angle, float speed) {
+	CoordI r; r.x = (int)(gMath.Cose(angle) * speed); r.y = (int)(gMath.Sine(angle) * speed);
+	return r;
 }
 
 static void SimNewBullet(SimWorld& w, int type, CoordF aPos, int aAngle, int aTimeAdd, float aShare, int owner) {
@@ -282,7 +498,28 @@ static void SimExplo(SimWorld& w, CoordI pos, int size, float share, int owner) 
 		int t = (w.rng.Rand() % 2) ? SE_METALY : SE_METALR;
 		SimNewEffect(w, t, (float)pos.x, (float)pos.y, ang, sp);
 	}
-	// body parts: none in M3.
+
+	// Move body parts near the blast (CLevelRuntimeData::Explo).
+	int pushDist = 25 * size;
+	float left = (float)(pos.x - pushDist * 2);
+	float right = (float)(pos.x + pushDist * 2);
+	for (size_t i = 0; i < w.bodyparts.size(); i++) {
+		SimBodyPart& bp = w.bodyparts[i];
+		if (bp.loc.x < left || bp.loc.x > right) continue; // X-sorted range
+		float vx = bp.loc.x - (float)pos.x;
+		float vy = bp.loc.y - (float)pos.y;
+		float dist = sqrtf(vx * vx + vy * vy);
+		if (dist < (float)(pushDist * 2)) {
+			if (w.level.VisibilityCheck(ToFloat2(pos), bp.loc, NULL)) {
+				if (dist) {
+					dist = dist * (dist / 2);
+					float nx = (float)(w.rng.Rand() % pushDist) * vx / dist;
+					float ny = (float)(w.rng.Rand() % pushDist) * vy / dist;
+					SimBodyPartPush(bp, nx, ny);
+				}
+			}
+		}
+	}
 }
 
 static int SimCheckWalls(SimWorld& w, int mode, CoordI newLoc) {
@@ -380,6 +617,26 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 		}
 
 		if (b.counter > t.sleepTime && !hitwall) {
+			for (size_t ei = 0; ei < w.enemies.size(); ) {
+				SimEnemy& e = w.enemies[ei];
+				CoordI loc = ToInt2(e.loc);
+				int l = loc.x + 5, tt = loc.y + 5, r = loc.x + 22, bb = loc.y + 22;
+				bool inside = rpos.x >= l && rpos.x < r && rpos.y >= tt && rpos.y < bb;
+				bool selfOk = (b.ownerId != SimEnemyOwnerId(e)) || (t.type != BK_INCENDIARY && t.type != BK_FIST);
+				if (inside && selfOk) {
+					hit = true;
+					SimEnemyGotoBulletOrigin(w, e, b);
+					vpos = ToInt2(AddMovF({ e.loc.x + 14, e.loc.y + 14 }, b.angle, 4));
+					e.pushAngle = b.angle;
+					if (t.pushPower > e.pushPower) e.pushPower = t.pushPower * 0.75f;
+					if (t.type == BK_INCENDIARY) { e.burning += 15; e.fryingObserver = b.ownerId; }
+					bool dead = false;
+					if (t.power > 0) dead = SimEnemyGetDamage(w, e, t.power, b.ownerId);
+					if (dead) SimKillEnemy(w, ei);
+					else ei++;
+				} else ei++;
+			}
+
 			for (size_t bi = 0; bi < w.players.size(); bi++) {
 				SimPlayer& pl = w.players[bi];
 				CoordI loc = ToInt2(pl.location);
@@ -388,7 +645,7 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 				bool selfOk = (b.ownerId != (int)bi) || (t.type != BK_INCENDIARY && t.type != BK_FIST);
 				if (!pl.dead && inside && selfOk) {
 					hit = true;
-					vpos = ToInt2(AddMovF({ (float)(loc.x + 14), (float)(loc.y + 14) }, b.angle, 4));
+					vpos = ToInt2(AddMovF({ pl.location.x + 14, pl.location.y + 14 }, b.angle, 4));
 					if (w.networkNone) {
 						pl.pushAngle = b.angle;
 						if (t.pushPower > pl.pushPower) pl.pushPower = t.pushPower * 0.75f;
@@ -428,28 +685,25 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 	if ((t.type == BK_NORMAL || t.type == BK_FIST) && (b.time == 0 || hitwall) && !hit && t.speed > 10)
 		SimNewEffect(w, SE_SMOKE, (float)rpos.x, (float)rpos.y, 0, 0);
 
+	bool alive = true;
 	if ((t.collisionTrigger && (hit || hitwall)) || b.time == 0) {
 		if (t.type == BK_EXPLOSIVE) {
-			CoordI ep = ToInt2(AddMovF(b.location, b.angle, -1.0f));
+			// rpos.AddMovement(-1): the int overload truncates the movement first.
+			CoordI ep = MovIAdd(rpos, b.angle, -1.0f);
 			SimExplo(w, ep, t.explosion, b.share, b.ownerId);
 		}
-		return 1;
+		alive = false;
 	}
 
-	// Effect / Effect2 (arguments evaluated even when the effect is NoEffect).
 	{
-		// DoEffect default == true.
-		int ea = (t.effectKind == EK_ROCKET) ? (b.angle + 90 + w.rng.Rand() % 180) : (t.effectKind == EK_RAY ? b.angle + 180 : b.angle);
-		float es = (t.effectKind == EK_ROCKET) ? 0.1f : (t.effectKind == EK_RAY ? (float)(w.rng.Rand() % 2) : 0.0f);
 		bool doE = (t.effectKind != EK_ROCKET) || (b.counter % 2 == 0);
-		if (doE) SimNewEffect(w, t.effect, (float)rpos.x, (float)rpos.y, ea, es);
+		if (doE) {
+			int ea = (t.effectKind == EK_ROCKET) ? (b.angle + 90 + w.rng.Rand() % 180) : (t.effectKind == EK_RAY ? b.angle + 180 : b.angle);
+			float es = (t.effectKind == EK_ROCKET) ? 0.1f : (t.effectKind == EK_RAY ? (float)(w.rng.Rand() % 2) : 0.0f);
+			SimNewEffect(w, t.effect, (float)rpos.x, (float)rpos.y, ea, es);
+		}
 	}
-	{
-		int ea2 = b.angle; // default Effect2Angle
-		float es2 = 0.0f;
-		// DoEffect2 default == true
-		SimNewEffect(w, t.effect2, (float)rpos.x, (float)rpos.y, ea2, es2);
-	}
+	SimNewEffect(w, t.effect2, (float)rpos.x, (float)rpos.y, b.angle, 0.0f);
 
 	if (b.speed > 0) b.speed += t.slow;
 	if (b.speed < 0) b.speed = 0;
@@ -460,7 +714,7 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 	if (b.spriteAngleAdd < 0) b.spriteAngleAdd += 0.4f;
 	if (b.spriteAngleAdd >= -0.4f && b.spriteAngleAdd <= 0.4f) b.spriteAngleAdd = 0;
 
-	return 0;
+	return alive ? 0 : 1;
 }
 
 // ---- player ----
@@ -481,20 +735,33 @@ static void SimStraighten(SimPlayer& p) {
 	if (p.angle >= 270 - KStraightTolerance && p.angle <= 270 + KStraightTolerance) { SimSetAngle(p, 270); return; }
 }
 
-static void SimFootprint(SimWorld& w, SimPlayer& p, int side) {
+static void SimPlayerFootprint(SimWorld& w, SimPlayer& p, int side) {
 	CoordI fp = ToInt2(AddMovF({ p.location.x + 15, p.location.y + 15 }, (int)p.angle + 90 + side * 180, 4.0f));
 	if (w.level.LevelData(fp.x / KBlockSpriteSize, fp.y / KBlockSpriteSize).iType == 0)
 		if (w.level.DustBlock(fp.x / KBlockSpriteSize, fp.y / KBlockSpriteSize))
 			SimNewEffect(w, SE_FOOTPRINT, (float)fp.x, (float)fp.y, 0, 0);
 }
 
-// CCharacter::Move
-static void SimCharMove(SimWorld& w, SimPlayer& p, int aAngle, float aSpeed) {
-	const int reuna = 6, reuna2 = 4;
-	if (p.walk == (int)(KWalkAnimationDelay * 0.25) || p.walk == (int)(KWalkAnimationDelay * 0.75)) SimFootprint(w, p, 0);
-	if (p.walk == (int)(KWalkAnimationDelay * 0.5) || p.walk == KWalkAnimationDelay - 1) SimFootprint(w, p, 1);
+static void SimEnemyFootprint(SimWorld& w, SimEnemy& e, int side) {
+	// NB: the enemy version multiplies the whole angle by 4 (original quirk).
+	CoordI fp = ToInt2(AddMovF({ e.loc.x + 15, e.loc.y + 15 }, ((int)e.angle + 90 + side * 180) * 4, 4.0f));
+	if (w.level.LevelData(fp.x / KBlockSpriteSize, fp.y / KBlockSpriteSize).iType == 0)
+		if (w.level.DustBlock(fp.x / KBlockSpriteSize, fp.y / KBlockSpriteSize))
+			SimNewEffect(w, SE_FOOTPRINT, (float)fp.x, (float)fp.y, 0, 0);
+}
 
-	CoordF newpos = AddMovF(p.location, aAngle, aSpeed);
+// CCharacter::Move, shared by players and enemies.
+static void SimCharMoveCommon(SimWorld& w, CoordF& loc, int& walk, int aAngle, float aSpeed,
+		SimPlayer* selfP, SimEnemy* selfE, bool isEnemy) {
+	const int reuna = 6, reuna2 = 4;
+	if (walk == (int)(KWalkAnimationDelay * 0.25) || walk == (int)(KWalkAnimationDelay * 0.75)) {
+		if (isEnemy) SimEnemyFootprint(w, *selfE, 0); else SimPlayerFootprint(w, *selfP, 0);
+	}
+	if (walk == (int)(KWalkAnimationDelay * 0.5) || walk == KWalkAnimationDelay - 1) {
+		if (isEnemy) SimEnemyFootprint(w, *selfE, 1); else SimPlayerFootprint(w, *selfP, 1);
+	}
+
+	CoordF newpos = AddMovF(loc, aAngle, aSpeed);
 	CoordI testpos = ToInt2(newpos);
 	CoordI bp[8];
 	bp[0].x = (testpos.x + 14 - reuna2) / KBlockSpriteSize; bp[0].y = (testpos.y + reuna) / KBlockSpriteSize;
@@ -506,39 +773,47 @@ static void SimCharMove(SimWorld& w, SimPlayer& p, int aAngle, float aSpeed) {
 	bp[6].x = (testpos.x + KCharacterSpriteSize - reuna) / KBlockSpriteSize; bp[6].y = (testpos.y + 14 - reuna2) / KBlockSpriteSize;
 	bp[7].x = (testpos.x + KCharacterSpriteSize - reuna) / KBlockSpriteSize; bp[7].y = (testpos.y + 14 + reuna2) / KBlockSpriteSize;
 
-	if (newpos.y < p.location.y &&
+	if (newpos.y < loc.y &&
 		w.level.LevelData(bp[0].x, bp[0].y).iType == 0 && w.level.LevelData(bp[1].x, bp[1].y).iType == 0) {
-		if (!SimCharCollision(w, testpos.x - 15, testpos.y + 2 * reuna - KCharacterSpriteSize, testpos.x + 15, testpos.y, &p)) {
-			if (newpos.y < 0) p.location.y = 0; else p.location.y = newpos.y;
+		if (!SimCharCollision(w, testpos.x - 15, testpos.y + 2 * reuna - KCharacterSpriteSize, testpos.x + 15, testpos.y, selfP, selfE)) {
+			if (newpos.y < 0) loc.y = 0; else loc.y = newpos.y;
 		}
 	}
-	if (newpos.y > p.location.y &&
+	if (newpos.y > loc.y &&
 		w.level.LevelData(bp[2].x, bp[2].y).iType == 0 && w.level.LevelData(bp[3].x, bp[3].y).iType == 0) {
-		if (!SimCharCollision(w, testpos.x - 15, testpos.y, testpos.x + 15, testpos.y + KCharacterSpriteSize - 2 * reuna, &p)) {
-			if (newpos.y > w.level.iHeight * KBlockSpriteSize - KCharacterSpriteSize) p.location.y = (float)(w.level.iHeight * KBlockSpriteSize - KCharacterSpriteSize);
-			else p.location.y = newpos.y;
+		if (!SimCharCollision(w, testpos.x - 15, testpos.y, testpos.x + 15, testpos.y + KCharacterSpriteSize - 2 * reuna, selfP, selfE)) {
+			if (newpos.y > w.level.iHeight * KBlockSpriteSize - KCharacterSpriteSize) loc.y = (float)(w.level.iHeight * KBlockSpriteSize - KCharacterSpriteSize);
+			else loc.y = newpos.y;
 		}
 	}
-	if (newpos.x < p.location.x &&
+	if (newpos.x < loc.x &&
 		w.level.LevelData(bp[4].x, bp[4].y).iType == 0 && w.level.LevelData(bp[5].x, bp[5].y).iType == 0) {
-		if (!SimCharCollision(w, testpos.x + 2 * reuna - KCharacterSpriteSize, testpos.y - 15, testpos.x, testpos.y + 15, &p)) {
-			if (newpos.x < 0) p.location.x = 0; else p.location.x = newpos.x;
+		if (!SimCharCollision(w, testpos.x + 2 * reuna - KCharacterSpriteSize, testpos.y - 15, testpos.x, testpos.y + 15, selfP, selfE)) {
+			if (newpos.x < 0) loc.x = 0; else loc.x = newpos.x;
 		}
 	}
-	if (newpos.x > p.location.x &&
+	if (newpos.x > loc.x &&
 		w.level.LevelData(bp[6].x, bp[6].y).iType == 0 && w.level.LevelData(bp[7].x, bp[7].y).iType == 0) {
-		if (!SimCharCollision(w, testpos.x, testpos.y - 15, testpos.x + KCharacterSpriteSize - 2 * reuna, testpos.y + 15, &p)) {
-			if (newpos.x > w.level.iWidth * KBlockSpriteSize - KCharacterSpriteSize) p.location.x = (float)(w.level.iWidth * KBlockSpriteSize - KCharacterSpriteSize);
-			else p.location.x = newpos.x;
+		if (!SimCharCollision(w, testpos.x, testpos.y - 15, testpos.x + KCharacterSpriteSize - 2 * reuna, testpos.y + 15, selfP, selfE)) {
+			if (newpos.x > w.level.iWidth * KBlockSpriteSize - KCharacterSpriteSize) loc.x = (float)(w.level.iWidth * KBlockSpriteSize - KCharacterSpriteSize);
+			else loc.x = newpos.x;
 		}
 	}
 }
 
-static void SimPlayerMove(SimWorld& w, SimPlayer& p, int aAngle, float aSpeed) {
+static void SimPlayerCharMove(SimWorld& w, SimPlayer& p, int aAngle, float aSpeed) {
+	SimCharMoveCommon(w, p.location, p.walk, aAngle, aSpeed, &p, NULL, false);
+}
+static void SimEnemyMoveChar(SimWorld& w, SimEnemy& e, int aAngle, float aSpeed) {
+	SimCharMoveCommon(w, e.loc, e.walk, aAngle, aSpeed, NULL, &e, true);
+}
+
+static void SimPlayerMove(SimWorld& w, SimPlayer& p, int aAngle, float aSpeed, const RectI& drawRect) {
 	// CPlayer::Move blood effect while hurt.
 	if (p.energy < 20 && p.walk % 4 == 0 && w.rng.Rand() % 3 == 0)
 		SimNewEffect(w, SE_BLOODG, p.location.x + 15, p.location.y + 15, 0, 0);
-	SimCharMove(w, p, aAngle, aSpeed);
+	SimPlayerCharMove(w, p, aAngle, aSpeed);
+	SimPickupCrates(w, p, drawRect);
 }
 
 static void SimChooseBestWeapon(SimWorld& w, SimPlayer& p) {
@@ -597,6 +872,15 @@ static void SimShoot(SimWorld& w, SimPlayer& p, int hand, int owner) {
 	}
 
 	if (weaponPtr.consumesBullets) p.bullets[weaponPtr.bulletType]--;
+
+	if (p.shootCount % gBullets[weaponPtr.bulletType].multiplier == 0) {
+		if (weaponPtr.smoke) {
+			int ra = (int)p.angle;
+			CoordI ofs = MovISet(ra, 8);
+			ofs = MovIAdd(ofs, ra + (hand == 2 ? 270 : 90), 4);
+			SimNewEffect(w, SE_GUNSMOKE, (float)(rpos.x + 14 + ofs.x), (float)(rpos.y + 14 + ofs.y), ra, 1.0f);
+		}
+	}
 }
 
 static void SimPlayerCheckKeys(SimWorld& w, int index, SimPlayer& p, const SimInput& in, const RectI& drawRect) {
@@ -616,7 +900,7 @@ static void SimPlayerCheckKeys(SimWorld& w, int index, SimPlayer& p, const SimIn
 	if ((in.keys & SK_STRAFE && in.keys & SK_LEFT) || (in.keys & SK_LSTRAFE)) { strafe = SD_LEFT; walk_chk = 1; }
 	if ((in.keys & SK_STRAFE && in.keys & SK_RIGHT) || (in.keys & SK_RSTRAFE)) { strafe = SD_RIGHT; walk_chk = 1; }
 
-	if (in.keys & SK_UP) { forward = SD_UP; walk_chk = 1; if (w.rng.Rand() % 40 == 0) { /* KickBodyParts: none */ } }
+	if (in.keys & SK_UP) { forward = SD_UP; walk_chk = 1; if (w.rng.Rand() % 40 == 0) SimKickBodyParts(w, p); }
 	if (in.keys & SK_DOWN) { forward = SD_DOWN; walk_chk = 1; }
 
 	if (w.mouseOwner == index) FAngle = (int)p.angle;
@@ -640,7 +924,7 @@ static void SimPlayerCheckKeys(SimWorld& w, int index, SimPlayer& p, const SimIn
 	}
 
 	ANGLEFIX(FAngle);
-	if (speedi != 0) SimPlayerMove(w, p, FAngle, speedi);
+	if (speedi != 0) SimPlayerMove(w, p, FAngle, speedi, drawRect);
 
 	if (walk_chk && p.walk == 0) p.walk = 1;
 	if (!walk_chk) p.walk = 0;
@@ -659,7 +943,7 @@ static void SimPlayerCheckKeys(SimWorld& w, int index, SimPlayer& p, const SimIn
 					else { SimSetSecondaryWeapon(p, 0); p.loadCounter2 = 0; }
 				}
 		if (gWeapons[p.curWeapon].bulletType == B_FIST)
-			if (p.loadCounter >= gWeapons[p.curWeapon].loadingTime) SimShoot(w, p, 1, index);
+			if (p.loadCounter >= gWeapons[p.curWeapon].loadingTime) { SimShoot(w, p, 1, index); SimKickBodyParts(w, p); }
 	} else {
 		p.shootCount = 0;
 		p.weaponInHand = false;
@@ -723,14 +1007,576 @@ static void SimInitScr(SimPlayer& p, const RectI& drawRect) {
 
 static void SimDecHits(SimPlayer& p) { if (p.hit > 0) p.hit--; }
 
+// ===========================================================================
+// M4: body parts
+// ===========================================================================
+static void SimBodyPartSetAngleAndSpeed(SimBodyPart& bp, CoordF v) {
+	float s = VectorLenF(v);
+	if (s > 5) s = 5;
+	bp.speed = s;
+	bp.angle = (int)VectorAngF(v);
+}
+static void SimBodyPartPush(SimBodyPart& bp, float vx, float vy) {
+	CoordF v; v.x = vx; v.y = vy;
+	CoordF m = AddMovF(v, bp.angle, bp.speed);
+	SimBodyPartSetAngleAndSpeed(bp, m);
+}
+static void SimBodyPartBounce(SimBodyPart& bp, int side) {
+	if (side == SD_DOWN || side == SD_UP) bp.angle = 360 - bp.angle;
+	else if (side == SD_RIGHT || side == SD_LEFT) bp.angle = 270 + (270 - bp.angle);
+}
+static void SimBodyPartKick(SimBodyPart& bp, int angle) {
+	bp.angle = angle;
+	bp.speed = gBodyParts[bp.type].kickspeed;
+}
+static void SimBodyPartMove(SimWorld& w, SimBodyPart& bp) {
+	const int reuna = 4, reuna2 = 2;
+	if (bp.speed <= 0) return;
+	CoordF vec = SetMovF(bp.angle, bp.speed);
+	float npx = bp.loc.x + vec.x, npy = bp.loc.y + vec.y;
+	int tx = (int)npx, ty = (int)npy;
+	const BodyPartType& bt = gBodyParts[bp.type];
+	if (bt.dropBlood)
+		if (w.rng.Rand() % 2 != 0)
+			SimNewEffect(w, SE_BLOODG, bp.loc.x + 10, bp.loc.y + 10, 0, 0);
+
+	if (npy < bp.loc.y) {
+		if (w.level.LevelData((tx + 10 - reuna2) / KBlockSpriteSize, (ty + reuna) / KBlockSpriteSize).iType == 0 &&
+			w.level.LevelData((tx + 10 + reuna2) / KBlockSpriteSize, (ty + reuna) / KBlockSpriteSize).iType == 0)
+			bp.loc.y = npy;
+		else if (bt.bounce) SimBodyPartBounce(bp, SD_DOWN);
+		else { vec.y = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
+	} else if (npy > bp.loc.y) {
+		if (w.level.LevelData((tx + 10 - reuna2) / KBlockSpriteSize, (ty + 20 - reuna) / KBlockSpriteSize).iType == 0 &&
+			w.level.LevelData((tx + 10 + reuna2) / KBlockSpriteSize, (ty + 20 - reuna) / KBlockSpriteSize).iType == 0)
+			bp.loc.y = npy;
+		else if (bt.bounce) SimBodyPartBounce(bp, SD_UP);
+		else { vec.y = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
+	}
+	if (npx < bp.loc.x) {
+		if (w.level.LevelData((tx + reuna) / KBlockSpriteSize, (ty + 10 - reuna2) / KBlockSpriteSize).iType == 0 &&
+			w.level.LevelData((tx + reuna) / KBlockSpriteSize, (ty + 10 + reuna2) / KBlockSpriteSize).iType == 0)
+			bp.loc.x = npx;
+		else if (bt.bounce) SimBodyPartBounce(bp, SD_RIGHT);
+		else { vec.x = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
+	} else if (npx > bp.loc.x) {
+		if (w.level.LevelData((tx + 20 - reuna) / KBlockSpriteSize, (ty + 10 - reuna2) / KBlockSpriteSize).iType == 0 &&
+			w.level.LevelData((tx + 20 - reuna) / KBlockSpriteSize, (ty + 10 + reuna2) / KBlockSpriteSize).iType == 0)
+			bp.loc.x = npx;
+		else if (bt.bounce) SimBodyPartBounce(bp, SD_LEFT);
+		else { vec.x = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
+	}
+	bp.speed += bt.slow;
+}
+static void SimKickBodyParts(SimWorld& w, SimPlayer& p) {
+	const int lx = KCharacterSpriteSize / 2 - KBodyPartSpriteSize;
+	const int rx = KCharacterSpriteSize / 2;
+	for (size_t i = 0; i < w.bodyparts.size(); i++) {
+		SimBodyPart& bp = w.bodyparts[i];
+		if (bp.loc.x < p.location.x + lx || bp.loc.x > p.location.x + rx) continue;
+		if (p.location.x + rx > bp.loc.x && p.location.x + lx < bp.loc.x &&
+			p.location.y + rx > bp.loc.y && p.location.y + lx < bp.loc.y) {
+			p.kick = 1;
+			int ang = ((int)p.angle - 5) + w.rng.Rand() % 10;
+			ANGLEFIX(ang);
+			SimBodyPartKick(bp, ang);
+		}
+	}
+}
+
+// ===========================================================================
+// M4: enemies
+// ===========================================================================
+static void SimKillEnemy(SimWorld& w, size_t index) {
+	CoordI p = ToInt2(w.enemies[index].loc);
+	w.deadEnemies.push_back(p);
+	w.enemies.erase(w.enemies.begin() + index);
+}
+static void SimEnemyGotoBulletOrigin(SimWorld& w, SimEnemy& e, const SimBullet& b) {
+	const EnemyType& t = gEnemies[e.type];
+	int walkCounter = (int)((float)SimApproxDistance(gBullets[b.typeId]) / t.speed);
+	if (t.hostile) {
+		if (e.state != ES_ASSAULT) {
+			int ta = b.angle + 180; ANGLEFIX(ta);
+			e.targetAngle = ta; e.walkCounter = walkCounter; e.state = ES_ASSAULT;
+		}
+	} else {
+		int ta = b.angle; ANGLEFIX(ta);
+		e.targetAngle = ta; e.walkCounter = walkCounter; e.state = ES_WANDER;
+	}
+}
+static bool SimEnemyGetDamage(SimWorld& w, SimEnemy& e, float damage, int observer) {
+	const EnemyType& t = gEnemies[e.type];
+	int alku = w.rng.Rand() % 7;
+	float spd = 1 + e.pushPower / 1.5f;
+	if (spd > 4.5f) spd = 4.5f;
+	e.energy -= damage;
+	if (e.energy <= 0) {
+		if (e.burning && !t.explosionDeath) {
+			SimNewEffect(w, SE_EXPLO, e.loc.x + 12, e.loc.y + 12, 0, 0);
+			SimNewEffect(w, SE_EXPLO, e.loc.x + 18, e.loc.y + 12, 0, 0);
+			SimNewEffect(w, SE_EXPLO, e.loc.x + 15, e.loc.y + 18, 0, 0);
+			for (int a = 0; a < 3; a++)
+				SimNewBodyPart(w, e.loc.x + 4, e.loc.y + 4, w.rng.Rand() % 360, 2.5f, a + BP_BURNED);
+		}
+		if (!e.burning && !t.explosionDeath) {
+			for (int a = 0; a < 16; a++)
+				if (w.rng.Rand() % 2) SimNewEffect(w, SE_BLOOD, e.loc.x + 15, e.loc.y + 15, (int)(a * 22.5f), 2);
+			for (int a = 0; a < 3; a++) {
+				float spd2 = spd + (float)(w.rng.Rand() % 2) * 0.3f;
+				SimNewBodyPart(w, e.loc.x + 4, e.loc.y + 4, w.rng.Rand() % 360, spd2, (a + alku) % 7);
+			}
+		}
+		if (t.explosionDeath) {
+			SimExplo(w, ToInt2({ e.loc.x + 4, e.loc.y + 4 }), 2, 1.0f, observer);
+			for (int a = 0; a < 3; a++)
+				SimNewBodyPart(w, e.loc.x + 4, e.loc.y + 4, w.rng.Rand() % 360, 3, a + BP_BURNED);
+		}
+		return true;
+	}
+	return false;
+}
+static void SimEnemyMove(SimWorld& w, SimEnemy& e, int aAngle, float aSpeed) {
+	if (e.energy < 10 && e.walk % 4 == 0 && w.rng.Rand() % 3 == 0)
+		SimNewEffect(w, SE_BLOODG, e.loc.x + 15, e.loc.y + 15, 0, 0);
+	float speedi = (aSpeed == 0) ? gEnemies[e.type].speed : aSpeed;
+	SimEnemyMoveChar(w, e, aAngle, speedi);
+}
+static void SimEnemyTargetAngle(SimEnemy& e, int aSpeed) {
+	if (e.angle != (float)e.targetAngle) {
+		if (e.angle < 180) {
+			if (e.targetAngle < e.angle + 180 && e.targetAngle > e.angle) e.angle += aSpeed;
+			else e.angle -= aSpeed;
+		} else {
+			if (e.targetAngle > e.angle - 180 && e.targetAngle < e.angle) e.angle -= aSpeed;
+			else e.angle += aSpeed;
+		}
+		ANGLEFIX(e.angle);
+		if (fabsf(e.angle - e.targetAngle) < aSpeed || fabsf((e.angle + 360) - e.targetAngle) < aSpeed)
+			e.angle = (float)e.targetAngle;
+	}
+}
+static void SimEnemyCheckPlayerVisibility(SimWorld& w, SimEnemy& e) {
+	const EnemyType& t = gEnemies[e.type];
+	int min = (int)e.angle - 90; ANGLEFIX(min);
+	int maximum = (int)e.angle + 90; ANGLEFIX(maximum);
+	if (e.state != ES_STILL && !t.hostile) return;
+
+	bool seeSome = false;
+	int n = (int)w.players.size();
+	for (int b = 0; b < n; b++) {
+		SimPlayer& pl = w.players[b];
+		e.seePlayer[b] = 0;
+		int goOn = 0;
+		if (!pl.dead) {
+			int plyAngle = (int)GetAngleF(e.loc.x, e.loc.y, pl.location.x, pl.location.y);
+			if (e.angle < 270 && e.angle > 90) {
+				if (plyAngle > min && plyAngle < maximum) goOn = 1;
+			} else if (plyAngle > min || plyAngle < maximum) goOn = 1;
+		}
+		if (goOn) {
+			if (GetDistF(e.loc.x + 14, e.loc.y + 14, pl.location.x + 14, pl.location.y + 14) < (float)t.sightDistance)
+				if (w.level.VisibilityCheck({ e.loc.x + 14, e.loc.y + 14 }, { pl.location.x + 14, pl.location.y + 14 }, NULL)) {
+					e.seePlayer[b] = 1;
+					if (t.hostile) { seeSome = true; e.state = ES_ASSAULT; }
+					else { e.state = ES_WANDER; return; }
+				}
+		}
+	}
+	if (seeSome) {
+		int closest = -1;
+		for (int b = 0; b < n && closest < 0; b++)
+			if (!w.players[b].dead) if (e.seePlayer[b]) closest = b;
+		for (int b = 0; b < n; b++) {
+			SimPlayer& pl = w.players[b];
+			if (pl.dead || !e.seePlayer[b]) continue;
+			SimPlayer& cur = w.players[closest];
+			if (GetDistF(pl.location.x, pl.location.y, e.loc.x, e.loc.y) < GetDistF(cur.location.x, cur.location.y, e.loc.x, e.loc.y))
+				closest = b;
+		}
+		SimPlayer& cl = w.players[closest];
+		e.targetAngle = (int)GetAngleF(e.loc.x, e.loc.y, cl.location.x, cl.location.y);
+	} else {
+		if (e.state != ES_STILL) e.state = ES_WANDER;
+	}
+}
+static void SimEnemyShoot(SimWorld& w, SimEnemy& e) {
+	const WeaponType& wp = gWeapons[e.curWeapon];
+	e.fire = 1; e.loadCounter = 0;
+	int ia = (int)e.angle;
+	for (int a = 0; a < wp.bulletAmount; a++) {
+		int r = (wp.angleAdd / 2) - w.rng.Rand() % wp.angleAdd;
+		CoordF sp = AddMovF({ e.loc.x + 14, e.loc.y + 14 }, ia, 10.0f);
+		SimNewBullet(w, wp.bulletType, sp, ia + r, 0, 1.0f / wp.bulletAmount, SimEnemyOwnerId(e));
+	}
+	if (e.shootCount % gBullets[wp.bulletType].multiplier == 0) {
+		if (wp.smoke) {
+			CoordF p = AddMovF({ e.loc.x + 14, e.loc.y + 14 }, ia, 8.0f);
+			p = AddMovF(p, ia + 90, 5.0f);
+			SimNewEffect(w, SE_GUNSMOKE, p.x, p.y, ia, 1.0f);
+		}
+	}
+}
+static void SimEnemyCheckForShoot(SimWorld& w, SimEnemy& e) {
+	int wannashoot = 0;
+	const WeaponType& wp = gWeapons[e.curWeapon];
+	for (int a = 0; a < (int)w.players.size(); a++) {
+		SimPlayer& pl = w.players[a];
+		if (e.seePlayer[a] && abs((int)(e.targetAngle - e.angle)) < 10) {
+			e.walkCounter = (int)(20 / gEnemies[e.type].speed);
+			int dist = (int)GetDistF(e.loc.x + 14, e.loc.y + 14, pl.location.x + 14, pl.location.y + 14);
+			if (dist <= SimApproxDistance(gBullets[wp.bulletType]) + 20) {
+				e.shootCount++;
+				wannashoot = 1;
+				if (e.loadCounter == wp.loadingTime) SimEnemyShoot(w, e);
+			}
+		}
+	}
+	if (!wannashoot) e.shootCount = 0;
+}
+static void SimEnemyCheck(SimWorld& w, SimEnemy& e) {
+	SimEnemyCheckPlayerVisibility(w, e);
+	if (gEnemies[e.type].hostile) {
+		SimEnemyCheckForShoot(w, e);
+		if (e.loadCounter < gWeapons[e.curWeapon].loadingTime) e.loadCounter++;
+	}
+}
+static void SimEnemyAnimate(SimEnemy& e) {
+	e.anim = 1;
+	if (e.walk) {
+		if (e.walk - 1 < KWalkAnimationDelay) e.walk++;
+		else e.walk = 1;
+		e.anim = (e.walk - 1) / (KWalkAnimationDelay / 4);
+		if (e.anim >= 3) e.anim = 1;
+	}
+	if (e.fire) { e.fire++; if (e.fire > 6) e.fire = 0; e.anim = 3; }
+	if (e.energy < 10) e.anim += 4;
+}
+static void SimEnemyDecideAndMove(SimWorld& w, SimEnemy& e) {
+	const EnemyType& t = gEnemies[e.type];
+	if (t.hostile)
+		for (int b = 0; b < (int)w.players.size() && e.state != ES_ASSAULT; b++)
+			if (e.seePlayer[b]) e.state = ES_ASSAULT;
+
+	if (e.state == ES_WANDER && !e.walkCounter && w.rng.Rand() % 125 == 1)
+		e.walkCounter = (w.rng.Rand() % 40) + 20;
+
+	if (e.walkCounter > 0) { SimEnemyMove(w, e, (int)e.angle, 0); e.walkCounter--; if (e.walk == 0) e.walk = 1; }
+	else e.walk = 0;
+
+	if (e.targetAngle == e.angle && !e.walkCounter) {
+		if (e.state == ES_WANDER || e.state == ES_STILL)
+			if (w.rng.Rand() % 50 == 1) e.targetAngle = w.rng.Rand() % 360;
+	}
+	SimEnemyTargetAngle(e, KEnemyRotSpeedInt);
+}
+static void SimEnemyUpdate(SimWorld& w) {
+	for (size_t i = 0; i < w.enemies.size(); i++) {
+		SimEnemy& e = w.enemies[i];
+		SimEnemyDecideAndMove(w, e);
+		if (e.pushPower > 0) { SimEnemyMove(w, e, e.pushAngle, e.pushPower); e.pushPower -= 0.075f; }
+		SimEnemyCheck(w, e);
+		SimEnemyAnimate(e);
+	}
+}
+static bool SimEnemyCheckBurning(SimWorld& w, SimEnemy& e) {
+	if (e.burning) {
+		e.burning--;
+		if ((w.steamAnimationCount % 15) == 0) SimNewEffect(w, SE_STEAM, e.loc.x + 14, e.loc.y + 14, 315, 1);
+		int mod = 3;
+		if (e.burning > 150) mod = 2;
+		if ((w.steamAnimationCount % mod) == 0) {
+			float yy = e.loc.y + (float)(10 + w.rng.Rand() % 8);
+			float xx = e.loc.x + (float)(10 + w.rng.Rand() % 8);
+			SimNewEffect(w, SE_FLAME2, xx, yy, 315, 1);
+		}
+		return SimEnemyGetDamage(w, e, 0.1f, e.fryingObserver);
+	}
+	return false;
+}
+static void SimPlayerCheckBurning(SimWorld& w, SimPlayer& p) {
+	if (p.burning) {
+		p.burning--;
+		if ((w.steamAnimationCount % 15) == 0) SimNewEffect(w, SE_STEAM, p.location.x + 14, p.location.y + 14, 315, 1);
+		int mod = 3;
+		if (p.burning > 150) mod = 2;
+		if ((w.steamAnimationCount % mod) == 0) {
+			float yy = p.location.y + (float)(10 + w.rng.Rand() % 8);
+			float xx = p.location.x + (float)(10 + w.rng.Rand() % 8);
+			SimNewEffect(w, SE_FLAME2, xx, yy, 315, 1);
+		}
+		SimGetDamage(w, p, 0.1f, p.fryingObserver);
+	}
+}
+static void SimCheckBurn(SimWorld& w) {
+	for (size_t i = 0; i < w.players.size(); i++)
+		if (!w.players[i].dead) SimPlayerCheckBurning(w, w.players[i]);
+	for (size_t i = 0; i < w.enemies.size();) {
+		if (SimEnemyCheckBurning(w, w.enemies[i])) SimKillEnemy(w, i);
+		else i++;
+	}
+}
+
+// ===========================================================================
+// M4: effects
+// ===========================================================================
+static int SimEffectRoll(SimWorld& w, SimFx& e, int amount) {
+	const EffectType& t = gEffects[e.type];
+	int mul = 1;
+	if (amount > KLightOverloadLimit) {
+		if (amount > KHeavyOverloadLimit) mul = t.heavyOLMul;
+		else mul = t.lightOLMul;
+	}
+	if (e.counter < t.tCount * t.delay) {
+		if (!t.random) e.counter += mul;
+		else e.counter += w.rng.Rand() % (mul * 3);
+	}
+	int die = 0;
+	if (e.counter >= t.tCount * t.delay) die = 1;
+	if ((e.vec.x != 0 || e.vec.y != 0) && !die) {
+		e.loc.x += e.vec.x;
+		e.loc.y += e.vec.y;
+		if (w.level.Collision((int)(e.loc.x / KBlockSpriteSize), (int)(e.loc.y / KBlockSpriteSize))) die = 1;
+	}
+	if (die && t.afterDeath != SE_NONE)
+		SimNewEffect(w, t.afterDeath, e.loc.x, e.loc.y, 0, 0);
+	return die;
+}
+static void SimRollEffects(SimWorld& w) {
+	int amount = (int)w.effects.size();
+	for (size_t i = 0; i < w.effects.size();) {
+		if (SimEffectRoll(w, w.effects[i], amount)) w.effects.erase(w.effects.begin() + i);
+		else i++;
+	}
+	w.steamAnimationCount++;
+}
+
+// ===========================================================================
+// M4: crates
+// ===========================================================================
+static void SimCrateMoveText(SimWorld& w, SimCrate& c) {
+	if (c.textCounter > 0) {
+		c.textPos = AddMovF(c.textPos, c.textAngle, c.textCounter2);
+		c.textCounter -= c.textCounter2;
+		c.textCounter2 += 0.05f;
+		if (c.textCounter <= 0) {
+			c.inUse = 0;
+			if (w.crateRespawn) c.wakeUpCounter = 1;
+		}
+	}
+}
+static void SimMoveCrateTexts(SimWorld& w) {
+	for (size_t i = 0; i < w.crates.size(); i++)
+		if (w.crates[i].inUse && w.crates[i].textCounter > 0) SimCrateMoveText(w, w.crates[i]);
+}
+static int SimCrateTextLen(SimWorld& w, const SimCrate& c) {
+	char buf[64];
+	switch (c.kind) {
+	case CK_WEAPON: strncpy(buf, gWeapons[c.value + 1].name, 63); buf[63] = 0; break;
+	case CK_BULLET: strncpy(buf, gBullets[c.value + 1].name, 63); buf[63] = 0; break;
+	case CK_HEALTH: strcpy(buf, "energy"); break;
+	case CK_MONEY: snprintf(buf, 64, "money (%d)", c.value); break;
+	default: strcpy(buf, "target system"); break;
+	}
+	return w.font.Length(buf);
+}
+static void SimCrateTaken(SimWorld& w, SimCrate& c, SimPlayer& p, const RectI& drawRect) {
+	int len = SimCrateTextLen(w, c);
+	int tx = c.loc.x + 7 - len - p.screenPos.x;
+	int ty = c.loc.y + 7 - p.screenPos.y;
+	c.textPos.x = (float)tx; c.textPos.y = (float)ty;
+	int bx = drawRect.l + 10;
+	int by = drawRect.b - 20;
+	c.textCounter = GetDistF((float)tx, (float)ty, (float)bx, (float)by) + 1.0f;
+	c.textAngle = (int)GetAngleF((float)tx, (float)ty, (float)bx, (float)by);
+}
+static void SimCrateTryPickup(SimWorld& w, SimCrate& c, SimPlayer& p, const RectI& drawRect) {
+	switch (c.kind) {
+	case CK_WEAPON: {
+		int wi = c.value + 1;
+		int maxw = gWeapons[wi].singleHand ? 2 : 1;
+		if (p.weapons[wi] < maxw) { p.weapons[wi]++; SimCrateTaken(w, c, p, drawRect); }
+		break;
+	}
+	case CK_BULLET: {
+		int bi = c.value + 1;
+		int maxb = gBullets[bi].maxForPlayer * gBullets[bi].multiplier;
+		if (p.bullets[bi] < maxb) {
+			p.bullets[bi] += gBullets[bi].amountInCrate;
+			if (p.bullets[bi] > maxb) p.bullets[bi] = maxb;
+			SimCrateTaken(w, c, p, drawRect);
+		}
+		break;
+	}
+	case CK_HEALTH: {
+		int maxe = KPlayerMaxEnergy + p.shield * KShieldEnergyAmount;
+		if (p.energy < (float)maxe) {
+			p.energy += 40;
+			if (p.energy > (float)maxe) p.energy = (float)maxe;
+			SimCrateTaken(w, c, p, drawRect);
+		}
+		break;
+	}
+	case CK_MONEY:
+		SimCrateTaken(w, c, p, drawRect);
+		p.cash += c.value;
+		break;
+	default:
+		if (!p.targetSystem) { p.targetSystem = true; SimCrateTaken(w, c, p, drawRect); }
+		break;
+	}
+}
+static void SimPickupCrates(SimWorld& w, SimPlayer& p, const RectI& drawRect) {
+	if (p.dead != 0) return;
+	for (size_t i = 0; i < w.crates.size(); i++) {
+		SimCrate& c = w.crates[i];
+		if (c.inUse && c.textCounter == 0 &&
+			c.loc.x + 7 > p.location.x && c.loc.x + 7 < p.location.x + KCharacterSpriteSize &&
+			c.loc.y + 7 > p.location.y && c.loc.y + 7 < p.location.y + KCharacterSpriteSize)
+			SimCrateTryPickup(w, c, p, drawRect);
+	}
+}
+static void SimChkWakeUps(SimWorld& w) {
+	for (size_t i = 0; i < w.crates.size(); i++) {
+		SimCrate& c = w.crates[i];
+		if (c.inUse != 0) continue;
+		if (c.wakeUpCounter > 0) {
+			c.wakeUpCounter++;
+			if (c.wakeUpCounter >= KCrateWakeupDelay) {
+				SimNewEffect(w, SE_TELEPORT, (float)(c.loc.x + 8), (float)(c.loc.y + 8), 0, 0);
+				c.textCounter = 0; c.textCounter2 = 0; c.inUse = 1; c.wakeUpCounter = 0;
+			}
+		}
+	}
+}
+static int SimCheckCratePlace(SimWorld& w, int x, int y, int size) {
+	if ((y + size) / KBlockSpriteSize >= w.level.iHeight) return 1;
+	if ((x + size) / KBlockSpriteSize >= w.level.iWidth) return 1;
+	if (w.level.LevelData(x / KBlockSpriteSize, y / KBlockSpriteSize).iType != 0) return 1;
+	if (w.level.LevelData(x / KBlockSpriteSize, (y + size) / KBlockSpriteSize).iType != 0) return 1;
+	if (w.level.LevelData((x + size) / KBlockSpriteSize, y / KBlockSpriteSize).iType != 0) return 1;
+	if (w.level.LevelData((x + size) / KBlockSpriteSize, (y + size) / KBlockSpriteSize).iType != 0) return 1;
+	for (size_t i = 0; i < w.players.size(); i++)
+		if (w.players[i].local && GetDistF((float)x, (float)y, w.players[i].location.x, w.players[i].location.y) < 50) return 1;
+	return 0;
+}
+static void SimPlaceGameCrates(SimWorld& w) {
+	for (size_t i = 0; i < w.level.iPlacedCratesNormal.size(); i++) {
+		const Level::CrateCoord& c = w.level.iPlacedCratesNormal[i];
+		SimNewCrate(w, c.x, c.y, c.type1, c.type2);
+	}
+	int W = w.level.iWidth * KBlockSpriteSize;
+	int H = w.level.iHeight * KBlockSpriteSize;
+	for (size_t i = 0; i < w.level.iRandomCratesNormal.size(); i++) {
+		const Level::RandomCrate& rc = w.level.iRandomCratesNormal[i];
+		for (int b = 0; b < rc.amount; b++) {
+			int x = 0, y = 0;
+			do {
+				x = w.rng.Rand() % W;
+				y = w.rng.Rand() % H;
+			} while (SimCheckCratePlace(w, x, y, 14));
+			SimNewCrate(w, x, y, rc.type1, rc.type2);
+		}
+	}
+}
+static bool SimTestEnemyLocation(SimWorld& w, int x, int y, bool strict) {
+	int plyDist = strict ? KCharacterSpriteSize * 5 : KCharacterSpriteSize;
+	if (!w.level.Reachable((x + 10) / KBlockSpriteSize, (y + 10) / KBlockSpriteSize)) return false;
+	for (size_t i = 0; i < w.enemies.size(); i++)
+		if (GetDistF((float)x, (float)y, w.enemies[i].loc.x, w.enemies[i].loc.y) < 18) return false;
+	if (!strict) {
+		for (size_t i = 0; i < w.level.iPlStart.size(); i++)
+			if (GetDistF((float)x, (float)y, (float)(w.level.iPlStart[i].x * KBlockSpriteSize), (float)(w.level.iPlStart[i].y * KBlockSpriteSize)) < KBlockSpriteSize)
+				return false;
+	}
+	for (size_t i = 0; i < w.players.size(); i++)
+		if (GetDistF((float)x, (float)y, w.players[i].location.x, w.players[i].location.y) < (float)plyDist) return false;
+	return true;
+}
+static bool SimPlaceEnemy(SimWorld& w, int type) {
+	int nx = 0, ny = 0, tryno = 0;
+	for (;;) {
+		tryno++;
+		if (tryno >= KTooManyTries) return true;
+		nx = (w.rng.Rand() % (w.level.iWidth - 2)) + 1;
+		ny = (w.rng.Rand() % (w.level.iHeight - 2)) + 1;
+		if (SimTestEnemyLocation(w, nx * KBlockSpriteSize, ny * KBlockSpriteSize, true)) break;
+	}
+	SimNewEnemy(w, type, false, nx * KBlockSpriteSize, ny * KBlockSpriteSize, w.rng.Rand() % 360);
+	return false;
+}
+static void SimInitEnemies(SimWorld& w) {
+	for (size_t i = 0; i < w.level.iEnemy.size(); i++) {
+		const Level::EnemyCoord& en = w.level.iEnemy[i];
+		if (SimTestEnemyLocation(w, en.x, en.y, false))
+			SimNewEnemy(w, en.type, true, en.x, en.y, w.rng.Rand() % 360);
+	}
+	bool randFuckUp = false;
+	for (int b = 0; b < EN_AMOUNT && !randFuckUp; b++) {
+		int count = w.level.iGeneralEnemies[b];
+		for (int a = 0; a < count && !randFuckUp; a++) randFuckUp = SimPlaceEnemy(w, b);
+	}
+}
+static void SimSpawnEntities(SimWorld& w) {
+	SimInitEnemies(w);
+	SimPlaceGameCrates(w);
+}
+static void SimShowSteam(SimWorld& w, const RectI& drawRect) {
+	const int buffer = 100;
+	int halfW = (drawRect.r - drawRect.l) / 2;
+	int halfH = (drawRect.b - drawRect.t) / 2;
+	for (size_t s = 0; s < w.level.iSteams.size(); s++) {
+		const Level::SteamCoord& sc = w.level.iSteams[s];
+		bool du = false;
+		for (size_t a = 0; a < w.players.size(); a++) {
+			SimPlayer& p = w.players[a];
+			if (!p.local) continue;
+			int l = (int)(p.location.x - halfW - buffer);
+			int t = (int)(p.location.y - halfH - buffer);
+			int r = (int)(p.location.x + halfW + buffer);
+			int b = (int)(p.location.y + halfH + buffer);
+			if (sc.x >= l && sc.x < r && sc.y >= t && sc.y < b) { du = true; break; }
+		}
+		if (du) {
+			int rate = (sc.speed < 8) ? KSteamRates[sc.speed] : 1;
+			if ((w.steamAnimationCount % rate) == 0) {
+				int ang = sc.angle - 3 + w.rng.Rand() % 6;
+				float sp = (float)(sc.speed / 2) * 0.75f;
+				SimNewEffect(w, SE_STEAM, (float)sc.x, (float)sc.y, ang, sp);
+			}
+		}
+	}
+}
+static void SimPerFrameCalc(SimWorld& w) {
+	int amount = (int)w.effects.size() + (int)w.newEffects.size();
+	if (amount > KMaxEffectsInGame) {
+		int drop = amount - KMaxEffectsInGame;
+		if (drop > (int)w.effects.size()) drop = (int)w.effects.size();
+		w.effects.erase(w.effects.begin(), w.effects.begin() + drop);
+	}
+	for (size_t i = 0; i < w.newEffects.size(); i++) w.effects.push_back(w.newEffects[i]);
+	w.newEffects.clear();
+
+	std::stable_sort(w.enemies.begin(), w.enemies.end(),
+		[](const SimEnemy& a, const SimEnemy& b) { return a.loc.x < b.loc.x; });
+	std::stable_sort(w.bodyparts.begin(), w.bodyparts.end(),
+		[](const SimBodyPart& a, const SimBodyPart& b) { return a.loc.x < b.loc.x; });
+
+	for (size_t i = 0; i < w.bullets.size();) {
+		if (SimMoveBullet(w, w.bullets[i])) w.bullets.erase(w.bullets.begin() + i);
+		else i++;
+	}
+	for (size_t i = 0; i < w.bodyparts.size(); i++) SimBodyPartMove(w, w.bodyparts[i]);
+	SimMoveCrateTexts(w);
+}
+
 // ---- per-tick world update (mirrors CGameSubStateOngoing::RunFrame inner loop) ----
 static void SimTick(SimWorld& w, const SimInput& in, const RectI& drawRect) {
-	// CheckUserInput: player keys
+	// CheckUserInput: player keys, then the mouse owner
 	for (size_t i = 0; i < w.players.size(); i++)
 		if (w.players[i].local && !w.players[i].dead)
 			SimPlayerCheckKeys(w, (int)i, w.players[i], in, drawRect);
 
-	// CheckUserInput: mouse rotation for the mouse owner
 	if (w.mouseOwner >= 0 && !w.players[w.mouseOwner].dead) {
 		float temp = (float)in.mouseXRel * w.mouseSensitivity;
 		if (temp < -15) temp = -15;
@@ -740,40 +1586,24 @@ static void SimTick(SimWorld& w, const SimInput& in, const RectI& drawRect) {
 		if (in.mouseButtons & SM_WHEEL_UP) SimChangeWeapon(w.players[w.mouseOwner], true);
 	}
 
-	// CLevelRuntimeData::PerFrameCalc — sort (none), move bullets
-	for (size_t i = 0; i < w.bullets.size();) {
-		if (SimMoveBullet(w, w.bullets[i])) w.bullets.erase(w.bullets.begin() + i);
-		else i++;
-	}
+	// LevelRuntimeData::PerFrameCalc
+	SimPerFrameCalc(w);
 
 	// PushPlayers (local players only)
 	for (size_t i = 0; i < w.players.size(); i++) {
 		SimPlayer& p = w.players[i];
 		if (!p.local) continue;
 		if (p.pushPower > 0) {
-			SimPlayerMove(w, p, p.pushAngle, p.pushPower);
+			SimPlayerMove(w, p, p.pushAngle, p.pushPower, drawRect);
 			p.pushPower -= 0.075f;
 		}
 	}
 
-	// CheckBurn (burning only, no-op when not burning)
-	for (size_t i = 0; i < w.players.size(); i++) {
-		SimPlayer& p = w.players[i];
-		if (p.dead) continue;
-		if (p.burning) {
-			p.burning--;
-			if ((w.steamAnimationCount % 15) == 0) SimNewEffect(w, SE_STEAM, p.location.x + 14, p.location.y + 14, 315, 1);
-			int mod = 3;
-			if (p.burning > 150) mod = 2;
-			if ((w.steamAnimationCount % mod) == 0) {
-				// Location().Add(10+rand()%8, 10+rand()%8): right-to-left → y then x.
-				float yy = p.location.y + (float)(10 + w.rng.Rand() % 8);
-				float xx = p.location.x + (float)(10 + w.rng.Rand() % 8);
-				SimNewEffect(w, SE_FLAME2, xx, yy, 315, 1);
-			}
-			SimGetDamage(w, p, 0.1f, p.fryingObserver);
-		}
-	}
+	// CheckBurn
+	SimCheckBurn(w);
+
+	// ChkWakeUps
+	if (w.crateRespawn) SimChkWakeUps(w);
 
 	// MoveScr + LoadWeapons (local players)
 	for (size_t i = 0; i < w.players.size(); i++)
@@ -786,16 +1616,18 @@ static void SimTick(SimWorld& w, const SimInput& in, const RectI& drawRect) {
 	for (size_t i = 0; i < w.players.size(); i++)
 		if (w.players[i].local) SimPlayerAnimate(w.players[i]);
 
-	// EnemyUpdate: none (M4)
+	// EnemyUpdate
+	SimEnemyUpdate(w);
 
 	// DecHits (local players)
 	for (size_t i = 0; i < w.players.size(); i++)
 		if (w.players[i].local) SimDecHits(w.players[i]);
 
-	// ShowSteam: no steam spots in M3.
+	// ShowSteam
+	SimShowSteam(w, drawRect);
 
-	// RollEffects (M4): only the animation counter is maintained here.
-	w.steamAnimationCount++;
+	// RollEffects
+	SimRollEffects(w);
 }
 
 #endif

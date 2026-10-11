@@ -13,27 +13,40 @@
 
 import {
   addMovement,
+  addMovementI,
   angleFix,
   cose,
   f32,
+  getAngle,
+  getDist,
   setMovement,
+  setMovementI,
   sine,
   vectorAngle,
   vectorLength,
 } from "../core/math";
 import { GlibcRandom } from "../core/rng";
 import { KCharacterSpriteSize, KBlockSpriteSize } from "../data/constants";
-import { type Level, levelData } from "../data/level";
+import { type Level, levelData, reachable } from "../data/level";
 import type { Rect } from "../render/rect";
 import { idiv, rectHeight, rectWidth } from "../render/rect";
+import { SimBodyPart, SimCrate, SimEffect, SimEnemy, crateText } from "./entities";
 import { simCollision, simDustBlock, simVisibilityCheck } from "./level-physics";
 import {
+  approxDistance,
+  BodyPartId,
+  BodyPartTypes,
   BounceType,
   BulletId,
   BulletKind,
   BulletTypes,
+  CrateKind,
   EffectId,
   EffectKind,
+  EffectTypes,
+  EnemyState,
+  EnemyTypes,
+  EEnemyAmount,
   WeaponId,
   WeaponTypes,
 } from "./types";
@@ -43,6 +56,18 @@ export const KPlayerRotationSpeed = Math.fround(3.4);
 const KStraightTolerance = 10;
 const KWalkAnimationDelay = 50;
 const KDeadAnimationDelay = 75;
+const KBodyPartSpriteSize = 20;
+const KEnemyRotationSpeed = 3;
+const KMaxEffectsInGame = 4000;
+const KLightOverloadLimit = 2000;
+const KHeavyOverloadLimit = 3000;
+const KTooManyTries = 100000;
+const KCrateWakeupDelay = 1250;
+/** `KPlayerMaxEnergy` / `KShieldEnergyAmount` (CPlayer.h). */
+const KPlayerMaxEnergy = 100;
+const KShieldEnergyAmount = 10;
+/** `KSteamRates[8]` (CDynGameData.cpp). */
+const KSteamRates = [30, 20, 10, 10, 8, 8, 6, 6];
 
 export const enum Key {
   Up = 1,
@@ -122,6 +147,9 @@ export class SimPlayer {
   screenY = 0;
   burning = 0;
   fryingObserver = -1;
+  shield = 0;
+  cash = 0;
+  targetSystem = false;
   local = true;
 
   spriteAngle(): number {
@@ -134,26 +162,73 @@ export class SimWorld {
   readonly rng: GlibcRandom;
   players: SimPlayer[] = [];
   bullets: SimBullet[] = [];
+  effects: SimEffect[] = [];
+  newEffects: SimEffect[] = [];
+  bodyparts: SimBodyPart[] = [];
+  enemies: SimEnemy[] = [];
+  crates: SimCrate[] = [];
+  deadEnemies: Array<{ x: number; y: number }> = [];
   mouseOwner = -1;
   mouseSensitivity = 0.5;
   mouseRightPressed = false;
   coopFrags = false;
   networkNone = true;
   steamAnimationCount = 0;
-  /** Number of effects that passed the in-level filter (diagnostics only). */
-  effectSpawns = 0;
+  /** `IGameMode::Frags()` — cooperative (the default) is false. */
+  frags = false;
+  /** `IGameMode::CrateRespawn()` — cooperative is false. */
+  crateRespawn = false;
+  /** `CFonts::Length` for the small in-game font (crate pickup text). */
+  textLength: (text: string) => number = (text) => text.length;
+  /** Monotonic id for enemy bullet-owner identity. */
+  private enemyUidCounter = 0;
 
   constructor(level: Level, seed: number) {
     this.level = level;
     this.rng = new GlibcRandom(seed);
   }
 
-  /** `CLevelRuntimeData::NewEffect` — stores nothing yet (M4), counts only. */
-  newEffect(type: EffectId, x: number, y: number, _angle: number, _speed: number): void {
+  /** `CLevelRuntimeData::NewEffect`. */
+  newEffect(type: EffectId, x: number, y: number, angle: number, speed: number): void {
     if (type === EffectId.None) return;
     const w = this.level.width * KBlockSpriteSize;
     const h = this.level.height * KBlockSpriteSize;
-    if (x >= 0 && x < w && y >= 0 && y < h) this.effectSpawns++;
+    if (x >= 0 && x < w && y >= 0 && y < h) {
+      const m = setMovement(angle, speed);
+      this.newEffects.push(new SimEffect(type, x, y, m.x, m.y));
+    }
+  }
+
+  /** `CLevelRuntimeData::NewBodyPart`. */
+  newBodyPart(x: number, y: number, angle: number, speed: number, num: number): void {
+    const part = new SimBodyPart();
+    part.x = x;
+    part.y = y;
+    part.angle = angle;
+    part.speed = speed;
+    part.typeId = num;
+    this.bodyparts.push(part);
+  }
+
+  /** `CLevelRuntimeData::NewEnemy`. */
+  newEnemy(type: number, waitStill: boolean, x: number, y: number, angle: number): void {
+    const e = new SimEnemy();
+    e.uid = this.enemyUidCounter++;
+    e.typeId = type;
+    e.state = waitStill ? EnemyState.Still : EnemyState.WanderAround;
+    e.angle = angle;
+    e.targetAngle = angle;
+    e.x = x;
+    e.y = y;
+    e.curWeapon = EnemyTypes[type].currentWeapon;
+    e.energy = EnemyTypes[type].energy;
+    e.seePlayer = Array.from({ length: this.players.length }, () => 0);
+    this.enemies.push(e);
+  }
+
+  /** `CLevelRuntimeData::NewCrate`. */
+  newCrate(x: number, y: number, kind: CrateKind, value: number): void {
+    this.crates.push(new SimCrate(kind, value, x, y));
   }
 
   /** `CLevelRuntimeData::NewBullet`. */
@@ -222,6 +297,28 @@ export class SimWorld {
       const ang = this.rng.rand() % 360;
       const t = this.rng.rand() % 2 ? EffectId.MetalYellow : EffectId.MetalRed;
       this.newEffect(t, posX, posY, ang, sp);
+    }
+
+    // Move body parts near the blast (CLevelRuntimeData::Explo).
+    const pushDist = 25 * size;
+    const left = posX - pushDist * 2;
+    const right = posX + pushDist * 2;
+    for (const part of this.bodyparts) {
+      // Body parts are sorted by X; this matches std::lower/upper_bound ranges.
+      if (part.x < left || part.x > right) continue;
+      const vx = part.x - posX;
+      const vy = part.y - posY;
+      let dist = vectorLength({ x: vx, y: vy });
+      if (dist < pushDist * 2) {
+        if (simVisibilityCheck(this.level, posX, posY, part.x, part.y).visible) {
+          if (dist) {
+            dist = f32(dist * f32(dist / 2));
+            const nx = ((this.rng.rand() % pushDist) * vx) / dist;
+            const ny = ((this.rng.rand() % pushDist) * vy) / dist;
+            this.bodyPartPush(part, nx, ny);
+          }
+        }
+      }
     }
   }
 
@@ -342,20 +439,48 @@ export class SimWorld {
       }
 
       if (b.counter > t.sleepTime && !hitwall) {
+        // Enemies (NetworkMode != Client).
+        for (let ei = 0; ei < this.enemies.length;) {
+          const e = this.enemies[ei];
+          const l = Math.trunc(e.x) + 5;
+          const tt = Math.trunc(e.y) + 5;
+          const r = Math.trunc(e.x) + 22;
+          const bb = Math.trunc(e.y) + 22;
+          const inside = rposX >= l && rposX < r && rposY >= tt && rposY < bb;
+          const selfOk =
+            b.ownerId !== this.enemyOwnerId(e) ||
+            (t.type !== BulletKind.Incendiary && t.type !== BulletKind.Fist);
+          if (inside && selfOk) {
+            hit = true;
+            this.enemyGotoBulletOrigin(e, b);
+            const vp = addMovement({ x: f32(e.x + 14), y: f32(e.y + 14) }, b.angle, 4);
+            vposX = Math.trunc(vp.x);
+            vposY = Math.trunc(vp.y);
+            e.pushAngle = b.angle;
+            if (t.pushPower > e.pushPower) e.pushPower = f32(t.pushPower * 0.75);
+            if (t.type === BulletKind.Incendiary) {
+              e.burning += 15;
+              e.fryingObserver = b.ownerId;
+            }
+            let dead = false;
+            if (t.power > 0) dead = this.enemyGetDamage(e, t.power, b.ownerId);
+            if (dead) this.killEnemy(ei);
+            else ei++;
+          } else ei++;
+        }
+
         for (let bi = 0; bi < this.players.length; bi++) {
           const pl = this.players[bi];
-          const lx = Math.trunc(pl.x);
-          const ly = Math.trunc(pl.y);
-          const l = lx + 5;
-          const tt = ly + 5;
-          const r = lx + 22;
-          const bb = ly + 22;
+          const l = Math.trunc(pl.x) + 5;
+          const tt = Math.trunc(pl.y) + 5;
+          const r = Math.trunc(pl.x) + 22;
+          const bb = Math.trunc(pl.y) + 22;
           const inside = rposX >= l && rposX < r && rposY >= tt && rposY < bb;
           const selfOk =
             b.ownerId !== bi || (t.type !== BulletKind.Incendiary && t.type !== BulletKind.Fist);
           if (!pl.dead && inside && selfOk) {
             hit = true;
-            const vp = addMovement({ x: f32(lx + 14), y: f32(ly + 14) }, b.angle, 4);
+            const vp = addMovement({ x: f32(pl.x + 14), y: f32(pl.y + 14) }, b.angle, 4);
             vposX = Math.trunc(vp.x);
             vposY = Math.trunc(vp.y);
             if (this.networkNone) {
@@ -405,16 +530,19 @@ export class SimWorld {
     )
       this.newEffect(EffectId.Smoke, rposX, rposY, 0, 0);
 
+    let alive = true;
     if ((t.collisionTrigger && (hit || hitwall)) || b.time === 0) {
       if (t.type === BulletKind.Explosive) {
-        const ep = addMovement({ x: b.x, y: b.y }, b.angle, -1);
-        this.explo(Math.trunc(ep.x), Math.trunc(ep.y), t.explosion, b.share, b.ownerId);
+        // rpos (int) .AddMovement: the movement component is truncated first.
+        const ex = rposX + Math.trunc(cose(b.angle) * -1);
+        const ey = rposY + Math.trunc(sine(b.angle) * -1);
+        this.explo(ex, ey, t.explosion, b.share, b.ownerId);
       }
-      return true;
+      alive = false;
     }
 
-    // Effect / Effect2 — args evaluated only inside the DoEffect() branch, and
-    // for no-effect bullets the call is a no-op (no rand consumed).
+    // Effect / Effect2 are created even when the bullet dies this tick; rand is
+    // consumed only inside the DoEffect() branch (rocket every other counter).
     {
       const doE = t.effectKind !== EffectKind.Rocket || b.counter % 2 === 0;
       if (doE) {
@@ -444,7 +572,7 @@ export class SimWorld {
     if (b.spriteAngleAdd < 0) b.spriteAngleAdd = f32(b.spriteAngleAdd + 0.4);
     if (b.spriteAngleAdd >= -0.4 && b.spriteAngleAdd <= 0.4) b.spriteAngleAdd = 0;
 
-    return false;
+    return !alive;
   }
 
   // ---- player ----
@@ -482,7 +610,20 @@ export class SimWorld {
         this.newEffect(EffectId.Footprint, bx, by, 0, 0);
   }
 
-  private charCollision(l: number, t: number, r: number, b: number, self: SimPlayer): boolean {
+  /** `CDynGameData::CharCollision` — enemies then players, excluding `self`. */
+  private charCollision(
+    l: number,
+    t: number,
+    r: number,
+    b: number,
+    self: SimPlayer | SimEnemy,
+  ): boolean {
+    for (const e of this.enemies) {
+      if (e === self) continue;
+      const ex = Math.trunc(e.x);
+      const ey = Math.trunc(e.y);
+      if (ex >= l && ex < r && ey >= t && ey < b) return true;
+    }
     for (const pl of this.players) {
       if (pl === self) continue;
       if (pl.dead) continue;
@@ -493,19 +634,25 @@ export class SimWorld {
     return false;
   }
 
-  /** `CCharacter::Move`. */
-  private charMove(p: SimPlayer, aAngle: number, aSpeed: number): void {
+  /** `CCharacter::Move` — shared by players ({@link charMove}) and enemies. */
+  private charMoveChar(
+    ch: { x: number; y: number; walk: number },
+    aAngle: number,
+    aSpeed: number,
+    self: SimPlayer | SimEnemy,
+    footprint: (side: number) => void,
+  ): void {
     const reuna = 6;
     const reuna2 = 4;
     if (
-      p.walk === Math.trunc(KWalkAnimationDelay * 0.25) ||
-      p.walk === Math.trunc(KWalkAnimationDelay * 0.75)
+      ch.walk === Math.trunc(KWalkAnimationDelay * 0.25) ||
+      ch.walk === Math.trunc(KWalkAnimationDelay * 0.75)
     )
-      this.footprint(p, 0);
-    if (p.walk === Math.trunc(KWalkAnimationDelay * 0.5) || p.walk === KWalkAnimationDelay - 1)
-      this.footprint(p, 1);
+      footprint(0);
+    if (ch.walk === Math.trunc(KWalkAnimationDelay * 0.5) || ch.walk === KWalkAnimationDelay - 1)
+      footprint(1);
 
-    const newpos = addMovement({ x: p.x, y: p.y }, aAngle, aSpeed);
+    const newpos = addMovement({ x: ch.x, y: ch.y }, aAngle, aSpeed);
     const tx = Math.trunc(newpos.x);
     const ty = Math.trunc(newpos.y);
     const bp: Array<[number, number]> = [
@@ -532,54 +679,59 @@ export class SimWorld {
     ];
 
     if (
-      newpos.y < p.y &&
+      newpos.y < ch.y &&
       levelData(this.level, bp[0][0], bp[0][1]).type === 0 &&
       levelData(this.level, bp[1][0], bp[1][1]).type === 0
     ) {
-      if (!this.charCollision(tx - 15, ty + 2 * reuna - KCharacterSpriteSize, tx + 15, ty, p)) {
-        if (newpos.y < 0) p.y = 0;
-        else p.y = newpos.y;
+      if (!this.charCollision(tx - 15, ty + 2 * reuna - KCharacterSpriteSize, tx + 15, ty, self)) {
+        if (newpos.y < 0) ch.y = 0;
+        else ch.y = newpos.y;
       }
     }
     if (
-      newpos.y > p.y &&
+      newpos.y > ch.y &&
       levelData(this.level, bp[2][0], bp[2][1]).type === 0 &&
       levelData(this.level, bp[3][0], bp[3][1]).type === 0
     ) {
-      if (!this.charCollision(tx - 15, ty, tx + 15, ty + KCharacterSpriteSize - 2 * reuna, p)) {
+      if (!this.charCollision(tx - 15, ty, tx + 15, ty + KCharacterSpriteSize - 2 * reuna, self)) {
         if (newpos.y > this.level.height * KBlockSpriteSize - KCharacterSpriteSize)
-          p.y = this.level.height * KBlockSpriteSize - KCharacterSpriteSize;
-        else p.y = newpos.y;
+          ch.y = this.level.height * KBlockSpriteSize - KCharacterSpriteSize;
+        else ch.y = newpos.y;
       }
     }
     if (
-      newpos.x < p.x &&
+      newpos.x < ch.x &&
       levelData(this.level, bp[4][0], bp[4][1]).type === 0 &&
       levelData(this.level, bp[5][0], bp[5][1]).type === 0
     ) {
-      if (!this.charCollision(tx + 2 * reuna - KCharacterSpriteSize, ty - 15, tx, ty + 15, p)) {
-        if (newpos.x < 0) p.x = 0;
-        else p.x = newpos.x;
+      if (!this.charCollision(tx + 2 * reuna - KCharacterSpriteSize, ty - 15, tx, ty + 15, self)) {
+        if (newpos.x < 0) ch.x = 0;
+        else ch.x = newpos.x;
       }
     }
     if (
-      newpos.x > p.x &&
+      newpos.x > ch.x &&
       levelData(this.level, bp[6][0], bp[6][1]).type === 0 &&
       levelData(this.level, bp[7][0], bp[7][1]).type === 0
     ) {
-      if (!this.charCollision(tx, ty - 15, tx + KCharacterSpriteSize - 2 * reuna, ty + 15, p)) {
+      if (!this.charCollision(tx, ty - 15, tx + KCharacterSpriteSize - 2 * reuna, ty + 15, self)) {
         if (newpos.x > this.level.width * KBlockSpriteSize - KCharacterSpriteSize)
-          p.x = this.level.width * KBlockSpriteSize - KCharacterSpriteSize;
-        else p.x = newpos.x;
+          ch.x = this.level.width * KBlockSpriteSize - KCharacterSpriteSize;
+        else ch.x = newpos.x;
       }
     }
   }
 
-  /** `CPlayer::Move` (blood effect while hurt + character move). */
-  private playerMove(p: SimPlayer, aAngle: number, aSpeed: number): void {
+  private charMove(p: SimPlayer, aAngle: number, aSpeed: number): void {
+    this.charMoveChar(p, aAngle, aSpeed, p, (side) => this.footprint(p, side));
+  }
+
+  /** `CPlayer::Move` (blood effect while hurt + character move + crate pickup). */
+  private playerMove(p: SimPlayer, aAngle: number, aSpeed: number, drawRect: Rect): void {
     if (p.energy < 20 && p.walk % 4 === 0 && this.rng.rand() % 3 === 0)
       this.newEffect(EffectId.BloodOnGround, p.x + 15, p.y + 15, 0, 0);
     this.charMove(p, aAngle, aSpeed);
+    this.pickupCrates(p, drawRect);
   }
 
   private changeWeapon(p: SimPlayer, reverse: boolean): void {
@@ -668,9 +820,18 @@ export class SimWorld {
     }
 
     if (w.consumesBullets) p.bullets[w.bulletType]--;
+
+    if (p.shootCount % BulletTypes[w.bulletType].multiplier === 0) {
+      if (w.smoke) {
+        // ofs is a CCoord<int>: each Set/AddMovement truncates separately.
+        const ra = Math.trunc(p.angle);
+        const ofs = addMovementI(setMovementI(ra, 8), hand === 2 ? ra + 270 : ra + 90, 4);
+        this.newEffect(EffectId.GunSmoke, rx + 14 + ofs.x, ry + 14 + ofs.y, ra, 1);
+      }
+    }
   }
 
-  private playerCheckKeys(index: number, p: SimPlayer, input: SimInput): void {
+  private playerCheckKeys(index: number, p: SimPlayer, input: SimInput, drawRect: Rect): void {
     let walkChk = 0;
     let speedi = 0;
     let strafe = Direction.Nowhere;
@@ -704,9 +865,7 @@ export class SimWorld {
     if (input.keys & Key.Up) {
       forward = Direction.Up;
       walkChk = 1;
-      if (this.rng.rand() % 40 === 0) {
-        // KickBodyParts: no body parts in M3.
-      }
+      if (this.rng.rand() % 40 === 0) this.kickBodyParts(p);
     }
     if (input.keys & Key.Down) {
       forward = Direction.Down;
@@ -735,7 +894,7 @@ export class SimWorld {
     }
 
     fAngle = angleFix(fAngle);
-    if (speedi !== 0) this.playerMove(p, fAngle, speedi);
+    if (speedi !== 0) this.playerMove(p, fAngle, speedi, drawRect);
 
     if (walkChk && p.walk === 0) p.walk = 1;
     if (!walkChk) p.walk = 0;
@@ -767,7 +926,10 @@ export class SimWorld {
             }
           }
       if (WeaponTypes[p.curWeapon].bulletType === BulletId.Fist)
-        if (p.loadCounter >= WeaponTypes[p.curWeapon].loadingTime) this.shoot(p, 1, index);
+        if (p.loadCounter >= WeaponTypes[p.curWeapon].loadingTime) {
+          this.shoot(p, 1, index);
+          this.kickBodyParts(p);
+        }
     } else {
       p.shootCount = 0;
       p.weaponInHand = false;
@@ -854,11 +1016,718 @@ export class SimWorld {
     p.screenY = Math.trunc(p.y - idiv(rectHeight(drawRect), 2));
   }
 
+  // ---------------------------------------------------------------------
+  // M4: enemies
+  // ---------------------------------------------------------------------
+
+  private enemyOwnerId(e: SimEnemy): number {
+    return -e.uid - 2;
+  }
+
+  private killEnemy(index: number): void {
+    const e = this.enemies[index];
+    this.deadEnemies.push({ x: Math.trunc(e.x), y: Math.trunc(e.y) });
+    this.enemies.splice(index, 1);
+  }
+
+  /** `CEnemy::GotoBulletOrigin`. */
+  private enemyGotoBulletOrigin(e: SimEnemy, b: SimBullet): void {
+    const t = EnemyTypes[e.typeId];
+    const walkCounter = Math.trunc(approxDistance(BulletTypes[b.typeId]) / t.speed);
+    if (t.hostile) {
+      if (e.state !== EnemyState.Assault) {
+        e.targetAngle = angleFix(b.angle + 180);
+        e.walkCounter = walkCounter;
+        e.state = EnemyState.Assault;
+      }
+    } else {
+      e.targetAngle = angleFix(b.angle);
+      e.walkCounter = walkCounter;
+      e.state = EnemyState.WanderAround;
+    }
+  }
+
+  /** `CEnemy::GetDamage`. */
+  private enemyGetDamage(e: SimEnemy, damage: number, observer: number): boolean {
+    const t = EnemyTypes[e.typeId];
+    const alku = this.rng.rand() % 7;
+    let spd = f32(1 + f32(e.pushPower / 1.5));
+    if (spd > 4.5) spd = 4.5;
+    e.energy = f32(e.energy - damage);
+    if (e.energy <= 0) {
+      if (e.burning && !t.explosionDeath) {
+        this.newEffect(EffectId.Explo, e.x + 12, e.y + 12, 0, 0);
+        this.newEffect(EffectId.Explo, e.x + 18, e.y + 12, 0, 0);
+        this.newEffect(EffectId.Explo, e.x + 15, e.y + 18, 0, 0);
+        for (let a = 0; a < 3; a++)
+          this.newBodyPart(
+            e.x + 4,
+            e.y + 4,
+            this.rng.rand() % 360,
+            2.5,
+            a + BodyPartId.BurnedChest,
+          );
+      }
+      if (!e.burning && !t.explosionDeath) {
+        for (let a = 0; a < 16; a++)
+          if (this.rng.rand() % 2)
+            this.newEffect(EffectId.Blood, e.x + 15, e.y + 15, Math.trunc(a * 22.5), 2);
+        for (let a = 0; a < 3; a++)
+          this.newBodyPart(
+            e.x + 4,
+            e.y + 4,
+            this.rng.rand() % 360,
+            f32(spd + f32((this.rng.rand() % 2) * 0.3)),
+            (a + alku) % 7,
+          );
+      }
+      if (t.explosionDeath) {
+        this.explo(Math.trunc(e.x + 4), Math.trunc(e.y + 4), 2, 1, observer);
+        for (let a = 0; a < 3; a++)
+          this.newBodyPart(e.x + 4, e.y + 4, this.rng.rand() % 360, 3, a + BodyPartId.BurnedChest);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** `CEnemy::Footprint` — note the original multiplies the angle by 4. */
+  private enemyFootprint(e: SimEnemy, side: number): void {
+    const fp = addMovement(
+      { x: f32(e.x + 15), y: f32(e.y + 15) },
+      (Math.trunc(e.angle) + 90 + side * 180) * 4,
+      4,
+    );
+    const fx = Math.trunc(fp.x);
+    const fy = Math.trunc(fp.y);
+    if (levelData(this.level, idiv(fx, KBlockSpriteSize), idiv(fy, KBlockSpriteSize)).type === 0)
+      if (simDustBlock(this.level, idiv(fx, KBlockSpriteSize), idiv(fy, KBlockSpriteSize)))
+        this.newEffect(EffectId.Footprint, fx, fy, 0, 0);
+  }
+
+  /** `CEnemy::Move`. */
+  private enemyMove(e: SimEnemy, aAngle: number, aSpeed: number): void {
+    if (e.energy < 10 && e.walk % 4 === 0 && this.rng.rand() % 3 === 0)
+      this.newEffect(EffectId.BloodOnGround, e.x + 15, e.y + 15, 0, 0);
+    const speedi = aSpeed === 0 ? EnemyTypes[e.typeId].speed : aSpeed;
+    this.charMoveChar(e, aAngle, speedi, e, (side) => this.enemyFootprint(e, side));
+  }
+
+  /** `CEnemy::TargetAngle`. */
+  private enemyTargetAngle(e: SimEnemy, aSpeed: number): void {
+    if (e.angle !== e.targetAngle) {
+      if (e.angle < 180) {
+        if (e.targetAngle < e.angle + 180 && e.targetAngle > e.angle)
+          e.angle = f32(e.angle + aSpeed);
+        else e.angle = f32(e.angle - aSpeed);
+      } else {
+        if (e.targetAngle > e.angle - 180 && e.targetAngle < e.angle)
+          e.angle = f32(e.angle - aSpeed);
+        else e.angle = f32(e.angle + aSpeed);
+      }
+      e.angle = angleFix(e.angle);
+      if (
+        Math.abs(e.angle - e.targetAngle) < aSpeed ||
+        Math.abs(e.angle + 360 - e.targetAngle) < aSpeed
+      )
+        e.angle = e.targetAngle;
+    }
+  }
+
+  /** `CEnemy::CheckPlayerVisibility`. */
+  private enemyCheckPlayerVisibility(e: SimEnemy): void {
+    const t = EnemyTypes[e.typeId];
+    let min = angleFix(Math.trunc(e.angle) - 90);
+    const maximum = angleFix(Math.trunc(e.angle) + 90);
+
+    if (e.state !== EnemyState.Still && !t.hostile) return;
+
+    let seeSome = false;
+    const n = this.players.length;
+    for (let b = 0; b < n; b++) {
+      const pl = this.players[b];
+      e.seePlayer[b] = 0;
+      let goOn = 0;
+      if (!pl.dead) {
+        const plyAngle = Math.trunc(getAngle(e.x, e.y, pl.x, pl.y));
+        if (e.angle < 270 && e.angle > 90) {
+          if (plyAngle > min && plyAngle < maximum) goOn = 1;
+        } else if (plyAngle > min || plyAngle < maximum) goOn = 1;
+      }
+      if (goOn) {
+        if (getDist(e.x + 14, e.y + 14, pl.x + 14, pl.y + 14) < t.sightDistance)
+          if (simVisibilityCheck(this.level, e.x + 14, e.y + 14, pl.x + 14, pl.y + 14).visible) {
+            e.seePlayer[b] = 1;
+            if (t.hostile) {
+              seeSome = true;
+              e.state = EnemyState.Assault;
+            } else {
+              e.state = EnemyState.WanderAround;
+              return;
+            }
+          }
+      }
+    }
+
+    if (seeSome) {
+      let closest = -1;
+      for (let b = 0; b < n && closest < 0; b++)
+        if (!this.players[b].dead) if (e.seePlayer[b]) closest = b;
+      for (let b = 0; b < n; b++) {
+        const pl = this.players[b];
+        if (pl.dead || !e.seePlayer[b]) continue;
+        const cur = this.players[closest];
+        if (getDist(pl.x, pl.y, e.x, e.y) < getDist(cur.x, cur.y, e.x, e.y)) closest = b;
+      }
+      const cl = this.players[closest];
+      e.targetAngle = Math.trunc(getAngle(e.x, e.y, cl.x, cl.y));
+    } else {
+      if (e.state !== EnemyState.Still) e.state = EnemyState.WanderAround;
+    }
+  }
+
+  /** `CEnemy::Shoot`. */
+  private enemyShoot(e: SimEnemy): void {
+    const w = WeaponTypes[e.curWeapon];
+    e.fire = 1;
+    e.loadCounter = 0;
+    const ia = Math.trunc(e.angle);
+    for (let a = 0; a < w.bulletAmount; a++) {
+      const r = (w.angleAdd >> 1) - (this.rng.rand() % w.angleAdd);
+      const sp = addMovement({ x: f32(e.x + 14), y: f32(e.y + 14) }, ia, 10);
+      this.newBullet(
+        w.bulletType,
+        sp.x,
+        sp.y,
+        ia + r,
+        0,
+        f32(1 / w.bulletAmount),
+        this.enemyOwnerId(e),
+      );
+    }
+    if (e.shootCount % BulletTypes[w.bulletType].multiplier === 0) {
+      if (w.smoke) {
+        let p = addMovement({ x: f32(e.x + 14), y: f32(e.y + 14) }, ia, 8);
+        p = addMovement(p, ia + 90, 5);
+        this.newEffect(EffectId.GunSmoke, p.x, p.y, ia, 1);
+      }
+    }
+  }
+
+  /** `CEnemy::CheckForShoot`. */
+  private enemyCheckForShoot(e: SimEnemy): void {
+    let wannashoot = 0;
+    const w = WeaponTypes[e.curWeapon];
+    for (let a = 0; a < this.players.length; a++) {
+      const pl = this.players[a];
+      if (e.seePlayer[a] && Math.abs(Math.trunc(e.targetAngle - e.angle)) < 10) {
+        e.walkCounter = Math.trunc(20 / EnemyTypes[e.typeId].speed);
+        const dist = Math.trunc(getDist(e.x + 14, e.y + 14, pl.x + 14, pl.y + 14));
+        if (dist <= approxDistance(BulletTypes[w.bulletType]) + 20) {
+          e.shootCount++;
+          wannashoot = 1;
+          if (e.loadCounter === w.loadingTime) this.enemyShoot(e);
+        }
+      }
+    }
+    if (!wannashoot) e.shootCount = 0;
+  }
+
+  /** `CEnemy::EnemyCheck`. */
+  private enemyCheck(e: SimEnemy): void {
+    this.enemyCheckPlayerVisibility(e);
+    if (EnemyTypes[e.typeId].hostile) {
+      this.enemyCheckForShoot(e);
+      if (e.loadCounter < WeaponTypes[e.curWeapon].loadingTime) e.loadCounter++;
+    }
+  }
+
+  /** `CEnemy::Animate`. */
+  private enemyAnimate(e: SimEnemy): void {
+    e.anim = 1;
+    if (e.walk) {
+      if (e.walk - 1 < KWalkAnimationDelay) e.walk++;
+      else e.walk = 1;
+      e.anim = idiv(e.walk - 1, idiv(KWalkAnimationDelay, 4));
+      if (e.anim >= 3) e.anim = 1;
+    }
+    if (e.fire) {
+      e.fire++;
+      if (e.fire > 6) e.fire = 0;
+      e.anim = 3;
+    }
+    if (e.energy < 10) e.anim += 4;
+  }
+
+  /** `CEnemy::DecideAndMove`. */
+  private enemyDecideAndMove(e: SimEnemy): void {
+    const t = EnemyTypes[e.typeId];
+    if (t.hostile) {
+      for (let b = 0; b < this.players.length && e.state !== EnemyState.Assault; b++)
+        if (e.seePlayer[b]) e.state = EnemyState.Assault;
+    }
+
+    if (e.state === EnemyState.WanderAround && !e.walkCounter && this.rng.rand() % 125 === 1)
+      e.walkCounter = (this.rng.rand() % 40) + 20;
+
+    if (e.walkCounter > 0) {
+      this.enemyMove(e, Math.trunc(e.angle), 0);
+      e.walkCounter--;
+      if (e.walk === 0) e.walk = 1;
+    } else e.walk = 0;
+
+    if (e.targetAngle === e.angle && !e.walkCounter) {
+      if (e.state === EnemyState.WanderAround || e.state === EnemyState.Still)
+        if (this.rng.rand() % 50 === 1) e.targetAngle = this.rng.rand() % 360;
+    }
+    this.enemyTargetAngle(e, KEnemyRotationSpeed);
+  }
+
+  /** `CLevelRuntimeData::EnemyUpdate`. */
+  private enemyUpdate(): void {
+    for (const e of this.enemies) {
+      this.enemyDecideAndMove(e);
+      if (e.pushPower > 0) {
+        this.enemyMove(e, e.pushAngle, e.pushPower);
+        e.pushPower = f32(e.pushPower - 0.075);
+      }
+      this.enemyCheck(e);
+      this.enemyAnimate(e);
+    }
+  }
+
+  /** `CCharacter::CheckBurning` for an enemy (returns true if it dies). */
+  private enemyCheckBurning(e: SimEnemy): boolean {
+    if (e.burning) {
+      e.burning--;
+      if (this.steamAnimationCount % 15 === 0)
+        this.newEffect(EffectId.Steam, e.x + 14, e.y + 14, 315, 1);
+      let mod = 3;
+      if (e.burning > 150) mod = 2;
+      if (this.steamAnimationCount % mod === 0) {
+        const yy = e.y + (10 + (this.rng.rand() % 8));
+        const xx = e.x + (10 + (this.rng.rand() % 8));
+        this.newEffect(EffectId.Flame2, xx, yy, 315, 1);
+      }
+      return this.enemyGetDamage(e, 0.1, e.fryingObserver);
+    }
+    return false;
+  }
+
+  /** `CCharacter::CheckBurning` for a player. */
+  private playerCheckBurning(p: SimPlayer): void {
+    if (p.burning) {
+      p.burning--;
+      if (this.steamAnimationCount % 15 === 0)
+        this.newEffect(EffectId.Steam, p.x + 14, p.y + 14, 315, 1);
+      let mod = 3;
+      if (p.burning > 150) mod = 2;
+      if (this.steamAnimationCount % mod === 0) {
+        const yy = p.y + (10 + (this.rng.rand() % 8));
+        const xx = p.x + (10 + (this.rng.rand() % 8));
+        this.newEffect(EffectId.Flame2, xx, yy, 315, 1);
+      }
+      this.getDamage(p, 0.1, p.fryingObserver);
+    }
+  }
+
+  /** `CDynGameData::CheckBurn`. */
+  private checkBurn(): void {
+    for (const p of this.players) if (!p.dead) this.playerCheckBurning(p);
+    for (let i = 0; i < this.enemies.length;) {
+      if (this.enemyCheckBurning(this.enemies[i])) this.killEnemy(i);
+      else i++;
+    }
+  }
+
+  /** `CDynGameData::ShowSteam`. */
+  private showSteam(drawRect: Rect): void {
+    const buffer = 100;
+    const halfW = idiv(rectWidth(drawRect), 2);
+    const halfH = idiv(rectHeight(drawRect), 2);
+    for (const s of this.level.steams) {
+      let du = false;
+      for (const p of this.players) {
+        if (!p.local) continue;
+        const l = Math.trunc(p.x - halfW - buffer);
+        const t = Math.trunc(p.y - halfH - buffer);
+        const r = Math.trunc(p.x + halfW + buffer);
+        const b = Math.trunc(p.y + halfH + buffer);
+        if (s.x >= l && s.x < r && s.y >= t && s.y < b) {
+          du = true;
+          break;
+        }
+      }
+      if (du) {
+        const rate = s.speed < KSteamRates.length ? KSteamRates[s.speed] : 1;
+        if (this.steamAnimationCount % rate === 0) {
+          const ang = s.angle - 3 + (this.rng.rand() % 6);
+          const sp = Math.trunc(s.speed / 2) * 0.75;
+          this.newEffect(EffectId.Steam, s.x, s.y, ang, sp);
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // M4: body parts
+  // ---------------------------------------------------------------------
+
+  private bodyPartSetAngleAndSpeed(part: SimBodyPart, v: { x: number; y: number }): void {
+    let s = vectorLength(v);
+    if (s > 5) s = 5;
+    part.speed = s;
+    part.angle = Math.trunc(vectorAngle(v));
+  }
+
+  private bodyPartPush(part: SimBodyPart, vx: number, vy: number): void {
+    const m = addMovement({ x: vx, y: vy }, part.angle, part.speed);
+    this.bodyPartSetAngleAndSpeed(part, m);
+  }
+
+  private bodyPartBounce(part: SimBodyPart, side: Direction): void {
+    if (side === Direction.Down || side === Direction.Up) part.angle = 360 - part.angle;
+    else if (side === Direction.Right || side === Direction.Left)
+      part.angle = 270 + (270 - part.angle);
+  }
+
+  private bodyPartKick(part: SimBodyPart, angle: number): void {
+    part.angle = angle;
+    part.speed = BodyPartTypes[part.typeId].kickspeed;
+  }
+
+  /** `CBodyPart::Move`. */
+  private bodyPartMove(part: SimBodyPart): void {
+    const reuna = 4;
+    const reuna2 = 2;
+    if (part.speed <= 0) return;
+    let vec = setMovement(part.angle, part.speed);
+    const npx = f32(part.x + vec.x);
+    const npy = f32(part.y + vec.y);
+    const tx = Math.trunc(npx);
+    const ty = Math.trunc(npy);
+    const bt = BodyPartTypes[part.typeId];
+    if (bt.dropBlood)
+      if (this.rng.rand() % 2 !== 0)
+        this.newEffect(EffectId.BloodOnGround, part.x + 10, part.y + 10, 0, 0);
+
+    const floor = (bx: number, by: number): boolean =>
+      levelData(this.level, idiv(bx, KBlockSpriteSize), idiv(by, KBlockSpriteSize)).type === 0;
+
+    if (npy < part.y) {
+      if (floor(tx + 10 - reuna2, ty + reuna) && floor(tx + 10 + reuna2, ty + reuna)) part.y = npy;
+      else if (bt.bounce) this.bodyPartBounce(part, Direction.Down);
+      else {
+        vec = { x: vec.x, y: 0 };
+        this.bodyPartSetAngleAndSpeed(part, vec);
+      }
+    } else if (npy > part.y) {
+      if (floor(tx + 10 - reuna2, ty + 20 - reuna) && floor(tx + 10 + reuna2, ty + 20 - reuna))
+        part.y = npy;
+      else if (bt.bounce) this.bodyPartBounce(part, Direction.Up);
+      else {
+        vec = { x: vec.x, y: 0 };
+        this.bodyPartSetAngleAndSpeed(part, vec);
+      }
+    }
+    if (npx < part.x) {
+      if (floor(tx + reuna, ty + 10 - reuna2) && floor(tx + reuna, ty + 10 + reuna2)) part.x = npx;
+      else if (bt.bounce) this.bodyPartBounce(part, Direction.Right);
+      else {
+        vec = { x: 0, y: vec.y };
+        this.bodyPartSetAngleAndSpeed(part, vec);
+      }
+    } else if (npx > part.x) {
+      if (floor(tx + 20 - reuna, ty + 10 - reuna2) && floor(tx + 20 - reuna, ty + 10 + reuna2))
+        part.x = npx;
+      else if (bt.bounce) this.bodyPartBounce(part, Direction.Left);
+      else {
+        vec = { x: 0, y: vec.y };
+        this.bodyPartSetAngleAndSpeed(part, vec);
+      }
+    }
+    part.speed = f32(part.speed + bt.slow);
+  }
+
+  /** `CPlayer::KickBodyParts`. */
+  private kickBodyParts(p: SimPlayer): void {
+    const lx = idiv(KCharacterSpriteSize, 2) - KBodyPartSpriteSize;
+    const rx = idiv(KCharacterSpriteSize, 2);
+    for (const part of this.bodyparts) {
+      if (part.x < p.x + lx || part.x > p.x + rx) continue;
+      if (p.x + rx > part.x && p.x + lx < part.x && p.y + rx > part.y && p.y + lx < part.y) {
+        p.kick = 1;
+        const ang = angleFix(Math.trunc(p.angle) - 5 + (this.rng.rand() % 10));
+        this.bodyPartKick(part, ang);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // M4: effects, body parts, enemies, crates per-frame plumbing
+  // ---------------------------------------------------------------------
+
+  /** `CLevelRuntimeData::PerFrameCalc`. */
+  private perFrameCalc(): void {
+    const amount = this.effects.length + this.newEffects.length;
+    if (amount > KMaxEffectsInGame) {
+      const drop = Math.min(amount - KMaxEffectsInGame, this.effects.length);
+      this.effects.splice(0, drop);
+    }
+    for (const eff of this.newEffects) this.effects.push(eff);
+    this.newEffects.length = 0;
+
+    stableSortByX(this.enemies);
+    stableSortByX(this.bodyparts);
+
+    for (let i = 0; i < this.bullets.length;) {
+      if (this.moveBullet(this.bullets[i])) this.bullets.splice(i, 1);
+      else i++;
+    }
+    for (const part of this.bodyparts) this.bodyPartMove(part);
+    this.moveCrateTexts();
+  }
+
+  /** `CLevelRuntimeData::RollEffects`. */
+  private rollEffects(): void {
+    const amount = this.effects.length;
+    for (let i = 0; i < this.effects.length;) {
+      if (this.effectRoll(this.effects[i], amount)) this.effects.splice(i, 1);
+      else i++;
+    }
+    this.steamAnimationCount++;
+  }
+
+  /** `CEffect::Roll` — returns true when the effect dies. */
+  private effectRoll(eff: SimEffect, amount: number): boolean {
+    const t = EffectTypes[eff.typeId];
+    let mul = 1;
+    if (amount > KLightOverloadLimit) {
+      if (amount > KHeavyOverloadLimit) mul = t.heavyOverloadMul;
+      else mul = t.lightOverloadMul;
+    }
+    if (eff.counter < t.tCount * t.delay) {
+      if (!t.random) eff.counter += mul;
+      else eff.counter += this.rng.rand() % (mul * 3);
+    }
+    let die = false;
+    if (eff.counter >= t.tCount * t.delay) die = true;
+    if ((eff.vx !== 0 || eff.vy !== 0) && !die) {
+      eff.x = f32(eff.x + eff.vx);
+      eff.y = f32(eff.y + eff.vy);
+      if (
+        simCollision(
+          this.level,
+          Math.trunc(eff.x / KBlockSpriteSize),
+          Math.trunc(eff.y / KBlockSpriteSize),
+        )
+      )
+        die = true;
+    }
+    if (die && t.afterDeathEffect !== EffectId.None)
+      this.newEffect(t.afterDeathEffect, eff.x, eff.y, 0, 0);
+    return die;
+  }
+
+  /** `CLevelRuntimeData::ChkWakeUps`. */
+  private chkWakeUps(): void {
+    for (const c of this.crates) {
+      if (c.inUse !== 0) continue;
+      if (c.wakeUpCounter > 0) {
+        c.wakeUpCounter++;
+        if (c.wakeUpCounter >= KCrateWakeupDelay) {
+          this.newEffect(EffectId.Teleport, c.x + 8, c.y + 8, 0, 0);
+          c.textCounter = 0;
+          c.textCounter2 = 0;
+          c.inUse = 1;
+          c.wakeUpCounter = 0;
+        }
+      }
+    }
+  }
+
+  private moveCrateTexts(): void {
+    for (const c of this.crates) if (c.inUse && c.textCounter > 0) this.crateMoveText(c);
+  }
+
+  /** `CCrate::MoveText`. */
+  private crateMoveText(c: SimCrate): void {
+    if (c.textCounter > 0) {
+      const m = addMovement({ x: c.textX, y: c.textY }, c.textAngle, c.textCounter2);
+      c.textX = m.x;
+      c.textY = m.y;
+      c.textCounter = f32(c.textCounter - c.textCounter2);
+      c.textCounter2 = f32(c.textCounter2 + 0.05);
+      if (c.textCounter <= 0) {
+        c.inUse = 0;
+        if (this.crateRespawn) c.wakeUpCounter = 1;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // M4: enemy/crate placement
+  // ---------------------------------------------------------------------
+
+  /** `CDynGameData::TestEnemyLocation`. */
+  testEnemyLocation(x: number, y: number, strict: boolean): boolean {
+    const plyDist = strict ? KCharacterSpriteSize * 5 : KCharacterSpriteSize;
+    if (!reachable(this.level, idiv(x + 10, KBlockSpriteSize), idiv(y + 10, KBlockSpriteSize)))
+      return false;
+    for (const e of this.enemies) if (getDist(x, y, e.x, e.y) < 18) return false;
+    if (!strict) {
+      for (const s of this.level.starts)
+        if (getDist(x, y, s.x * KBlockSpriteSize, s.y * KBlockSpriteSize) < KBlockSpriteSize)
+          return false;
+    }
+    for (const p of this.players) if (getDist(x, y, p.x, p.y) < plyDist) return false;
+    return true;
+  }
+
+  /** `CLevelRuntimeData::PlaceEnemy` — returns true if placement failed. */
+  private placeEnemy(type: number): boolean {
+    let nx = 0;
+    let ny = 0;
+    let tryno = 0;
+    for (;;) {
+      tryno++;
+      if (tryno >= KTooManyTries) return true;
+      nx = (this.rng.rand() % (this.level.width - 2)) + 1;
+      ny = (this.rng.rand() % (this.level.height - 2)) + 1;
+      if (this.testEnemyLocation(nx * KBlockSpriteSize, ny * KBlockSpriteSize, true)) break;
+    }
+    this.newEnemy(type, false, nx * KBlockSpriteSize, ny * KBlockSpriteSize, this.rng.rand() % 360);
+    return false;
+  }
+
+  /** `CLevelRuntimeData::InitEnemies`. */
+  initEnemies(): void {
+    for (const en of this.level.enemies) {
+      if (this.testEnemyLocation(en.x, en.y, false))
+        this.newEnemy(en.type, true, en.x, en.y, this.rng.rand() % 360);
+    }
+    let randFuckUp = false;
+    for (let b = 0; b < EEnemyAmount && !randFuckUp; b++) {
+      const count = this.level.general.enemies[b] ?? 0;
+      for (let a = 0; a < count && !randFuckUp; a++) randFuckUp = this.placeEnemy(b);
+    }
+  }
+
+  /** `CDynGameData::CheckCratePlace`. */
+  checkCratePlace(x: number, y: number, size: number): number {
+    if (idiv(y + size, KBlockSpriteSize) >= this.level.height) return 1;
+    if (idiv(x + size, KBlockSpriteSize) >= this.level.width) return 1;
+    if (levelData(this.level, idiv(x, 20), idiv(y, 20)).type !== 0) return 1;
+    if (levelData(this.level, idiv(x, 20), idiv(y + size, 20)).type !== 0) return 1;
+    if (levelData(this.level, idiv(x + size, 20), idiv(y, 20)).type !== 0) return 1;
+    if (levelData(this.level, idiv(x + size, 20), idiv(y + size, 20)).type !== 0) return 1;
+    for (const p of this.players) if (p.local && getDist(x, y, p.x, p.y) < 50) return 1;
+    return 0;
+  }
+
+  /** `CLevelRuntimeData::PlaceGameCrates` (normal, non-DM). */
+  placeGameCrates(): void {
+    for (const c of this.level.placedCratesNormal)
+      this.newCrate(c.x, c.y, c.type1 as CrateKind, c.type2);
+    const w = this.level.width * KBlockSpriteSize;
+    const h = this.level.height * KBlockSpriteSize;
+    for (const rc of this.level.randomCratesNormal)
+      for (let b = 0; b < rc.amount; b++) {
+        let x = 0;
+        let y = 0;
+        do {
+          x = this.rng.rand() % w;
+          y = this.rng.rand() % h;
+        } while (this.checkCratePlace(x, y, 14));
+        this.newCrate(x, y, rc.type1 as CrateKind, rc.type2);
+      }
+  }
+
+  /** `CDynGameData::SetupLevelStart`'s entity spawn (after player placement). */
+  spawnEntities(): void {
+    this.initEnemies();
+    this.placeGameCrates();
+  }
+
+  /** `CPlayer::PickupCrates`. */
+  private pickupCrates(p: SimPlayer, drawRect: Rect): void {
+    if (p.dead !== 0) return;
+    for (const c of this.crates) {
+      if (
+        c.inUse &&
+        c.textCounter === 0 &&
+        c.x + 7 > p.x &&
+        c.x + 7 < p.x + KCharacterSpriteSize &&
+        c.y + 7 > p.y &&
+        c.y + 7 < p.y + KCharacterSpriteSize
+      )
+        this.crateTryPickup(c, p, drawRect);
+    }
+  }
+
+  private crateTryPickup(c: SimCrate, p: SimPlayer, drawRect: Rect): void {
+    switch (c.kind) {
+      case CrateKind.Weapon: {
+        const wi = c.value + 1;
+        if (p.weapons[wi] < (WeaponTypes[wi].singleHand ? 2 : 1)) {
+          p.weapons[wi]++;
+          this.crateTaken(c, p, drawRect);
+        }
+        break;
+      }
+      case CrateKind.Bullet: {
+        const bi = c.value + 1;
+        const t = BulletTypes[bi];
+        if (p.bullets[bi] < t.maximumForPlayer * t.multiplier) {
+          p.bullets[bi] += t.amountInCrate;
+          p.bullets[bi] = Math.min(p.bullets[bi], t.maximumForPlayer * t.multiplier);
+          this.crateTaken(c, p, drawRect);
+        }
+        break;
+      }
+      case CrateKind.Health: {
+        const max = KPlayerMaxEnergy + p.shield * KShieldEnergyAmount;
+        if (p.energy < max) {
+          p.energy = f32(p.energy + 40);
+          p.energy = Math.min(p.energy, max);
+          this.crateTaken(c, p, drawRect);
+        }
+        break;
+      }
+      case CrateKind.Money: {
+        this.crateTaken(c, p, drawRect);
+        p.cash += c.value;
+        break;
+      }
+      default: {
+        if (!p.targetSystem) {
+          p.targetSystem = true;
+          this.crateTaken(c, p, drawRect);
+        }
+        break;
+      }
+    }
+  }
+
+  /** `CCrate::Taken` — the floating text counter depends on the font width. */
+  private crateTaken(c: SimCrate, p: SimPlayer, drawRect: Rect): void {
+    const len = this.textLength(crateText(c));
+    const tx = c.x + 7 - len - p.screenX;
+    const ty = c.y + 7 - p.screenY;
+    c.textX = tx;
+    c.textY = ty;
+    const bx = drawRect.left + 10;
+    const by = drawRect.bottom - 20;
+    c.textCounter = f32(f32(getDist(tx, ty, bx, by)) + 1);
+    c.textAngle = Math.trunc(getAngle(tx, ty, bx, by));
+  }
+
   /** One 100 Hz tick — mirrors the inner loop of `CGameSubStateOngoing::RunFrame`. */
   tick(input: SimInput, drawRect: Rect): void {
+    // 1. CheckUserInput — player keys, then the mouse owner.
     for (let i = 0; i < this.players.length; i++)
       if (this.players[i].local && !this.players[i].dead)
-        this.playerCheckKeys(i, this.players[i], input);
+        this.playerCheckKeys(i, this.players[i], input, drawRect);
 
     if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
       let temp = f32(f32(input.mouseXRel) * this.mouseSensitivity);
@@ -871,46 +1740,49 @@ export class SimWorld {
         this.changeWeapon(this.players[this.mouseOwner], true);
     }
 
-    for (let i = 0; i < this.bullets.length;) {
-      if (this.moveBullet(this.bullets[i])) this.bullets.splice(i, 1);
-      else i++;
-    }
+    // 2. LevelRuntimeData::PerFrameCalc
+    this.perFrameCalc();
 
+    // 3. PushPlayers
     for (const p of this.players) {
       if (!p.local) continue;
       if (p.pushPower > 0) {
-        this.playerMove(p, p.pushAngle, p.pushPower);
+        this.playerMove(p, p.pushAngle, p.pushPower, drawRect);
         p.pushPower = f32(p.pushPower - 0.075);
       }
     }
 
-    for (const p of this.players) {
-      if (p.dead) continue;
-      if (p.burning) {
-        p.burning--;
-        if (this.steamAnimationCount % 15 === 0)
-          this.newEffect(EffectId.Steam, p.x + 14, p.y + 14, 315, 1);
-        let mod = 3;
-        if (p.burning > 150) mod = 2;
-        if (this.steamAnimationCount % mod === 0) {
-          const yy = p.y + (10 + (this.rng.rand() % 8));
-          const xx = p.x + (10 + (this.rng.rand() % 8));
-          this.newEffect(EffectId.Flame2, xx, yy, 315, 1);
-        }
-        this.getDamage(p, 0.1, p.fryingObserver);
-      }
-    }
+    // 4. CheckBurn
+    this.checkBurn();
 
+    // 5. ChkWakeUps
+    if (this.crateRespawn) this.chkWakeUps();
+
+    // 6. MoveScr + LoadWeapons (local players)
     for (const p of this.players)
       if (p.local) {
         this.moveScr(p, drawRect);
         this.loadWeapons(p);
       }
 
+    // 7. AnimatePlayers (local players)
     for (const p of this.players) if (p.local) this.animate(p);
 
+    // 8. EnemyUpdate
+    this.enemyUpdate();
+
+    // 9. DecHits (local players)
     for (const p of this.players) if (p.local && p.hit > 0) p.hit--;
 
-    this.steamAnimationCount++;
+    // 10. ShowSteam
+    this.showSteam(drawRect);
+
+    // 11. RollEffects
+    this.rollEffects();
   }
+}
+
+/** Stable sort by `x` (`std::stable_sort` in the oracle, JS sort is stable). */
+function stableSortByX<T extends { x: number }>(arr: T[]): void {
+  arr.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
 }

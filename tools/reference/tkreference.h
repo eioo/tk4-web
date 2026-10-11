@@ -251,6 +251,18 @@ struct Level {
 	TBlock iOutBlock;
 	std::vector<CoordI> iPlStart;
 	std::vector<unsigned char> reachable;
+
+	// M4 entity data (read from the extended level dump).
+	struct EnemyCoord { int type = 0, x = 0, y = 0; };
+	struct CrateCoord { int type1 = 0, type2 = 0, x = 0, y = 0; };
+	struct RandomCrate { int type1 = 0, type2 = 0, amount = 0; };
+	struct SteamCoord { int x = 0, y = 0, angle = 0, speed = 0; };
+	std::vector<EnemyCoord> iEnemy;
+	int iGeneralEnemies[10] = {0};
+	std::vector<CrateCoord> iPlacedCratesNormal;
+	std::vector<RandomCrate> iRandomCratesNormal;
+	std::vector<SteamCoord> iSteams;
+
 	static bool FloorLevel(const TBlock& b) { return b.iType == 0 || b.iHeight == 0; }
 	TBlock& LevelData(int x, int y) {
 		if (x < 0 || y < 0 || x >= iWidth || y >= iHeight) return iOutBlock;

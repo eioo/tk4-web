@@ -15,12 +15,12 @@ import { buildScript, runReplay, serializeScript } from "../replay";
  *   bun run tools/reference/dump-level.ts tapankaikki4/data/levs/default/level1.lev /tmp/lvl.dump
  *   bun run tools/reference/dump-script.ts /tmp/replay1.script
  *   g++ -O2 -o /tmp/sim_gen tools/reference/sim_gen.cpp -lm
- *   /tmp/sim_gen replay /tmp/lvl.dump /tmp/replay1.script /tmp/replay1.trace
+ *   /tmp/sim_gen replay /tmp/lvl.dump /tmp/replay1.script /tmp/replay1.trace tapankaikki4/data
  */
 const SCRIPT_FIXTURE = new URL("../../../tools/reference/fixtures/replay1.script", import.meta.url);
 const TRACE_FIXTURE = new URL("../../../tools/reference/fixtures/replay1.trace", import.meta.url);
 
-const ORACLE_TRACE_HASH = "36c8af3bbb518559a99bc6d231d73d6e0cbdedca362f584c296477b3700ffd50";
+const ORACLE_TRACE_HASH = "016f2b8effe02d5619562052c360911bd08f4525e1eec49cbc1f895b744ac4f5";
 
 async function readFile(url: URL): Promise<Uint8Array> {
   return new Uint8Array(await Bun.file(url).arrayBuffer());
@@ -36,7 +36,8 @@ describe("M3 replay against the C++ oracle", () => {
 
   test("the whole 400-tick trace is byte-identical", async () => {
     const levelBytes = await readRef("levs/default/level1.lev");
-    const got = runReplay(levelBytes, buildScript());
+    const fontBytes = await readRef("fnts/menu15x18dark.fnt");
+    const got = runReplay(levelBytes, buildScript(), fontBytes);
     const want = await readFile(TRACE_FIXTURE);
 
     if (sha256(got) !== sha256(want)) {
