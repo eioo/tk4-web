@@ -197,6 +197,11 @@ async function boot(): Promise<void> {
   });
   loop.start();
   window.tk4Ready = true;
+  window.tk4Give = (weapon: number, ammo = 500) => {
+    player.weapons[weapon] = 1;
+    player.bullets[WeaponTypes[weapon].bulletType] = ammo;
+    player.curWeapon = weapon as typeof player.curWeapon;
+  };
   window.tk4State = () => ({
     x: player.x,
     y: player.y,

@@ -20,5 +20,12 @@ interface Window {
     weapon: number;
     ammo: number;
     bullets: number;
+    enemies: number;
+    crates: number;
+    bodyparts: number;
+    effects: number;
+    cash: number;
   };
+  /** Dev-only: give the local player a weapon (and ammo) and equip it. */
+  tk4Give?: (weapon: number, ammo?: number) => void;
 }
