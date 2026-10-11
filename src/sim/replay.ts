@@ -1,0 +1,249 @@
+/**
+ * Deterministic replay harness for M3 (docs 13). Defines a fixed scripted
+ * input for a level, serialises it in the format `tools/reference/sim_gen.cpp`
+ * reads, and serialises the resulting per-tick state trace in the format the
+ * oracle writes — so the two can be compared byte-for-byte.
+ *
+ * The script itself is a test fixture: it drives forward/strafe/turn/shoot and
+ * a weapon switch so movement, camera, shooting, bullet physics, bouncing,
+ * collisions and damage are all exercised.
+ */
+
+import { type Level, loadLevel } from "../data/level";
+import { makeRect } from "../render/rect";
+import { BulletId, WeaponId } from "./types";
+import { SimWorld, SimPlayer, type SimInput, Key, MouseButton } from "./world";
+
+export const SCRIPT_VERSION = 1;
+export const DRAW_RECT = makeRect(0, 0, 640, 480);
+
+export interface ReplayPlayer {
+  x: number;
+  y: number;
+  angle: number;
+  energy: number;
+  local: boolean;
+  weapons: number[];
+  bullets: number[];
+}
+
+export interface ReplayScript {
+  seed: number;
+  ticks: number;
+  levelName: string;
+  sensitivity: number;
+  mouseOwner: number;
+  players: ReplayPlayer[];
+  inputs: SimInput[];
+}
+
+function emptyWeapons(): number[] {
+  return Array.from({ length: 13 }, (): number => 0);
+}
+function emptyBullets(): number[] {
+  return Array.from({ length: 12 }, (): number => 0);
+}
+
+/** Builds the deterministic replay used by the tests and the oracle. */
+export function buildScript(): ReplayScript {
+  const ticks = 400;
+  const inputs: SimInput[] = [];
+
+  const p0weapons = emptyWeapons();
+  p0weapons[WeaponId.AutoRifle] = 1;
+  p0weapons[WeaponId.Pistol] = 1;
+  p0weapons[WeaponId.Shotgun] = 1;
+  const p0bullets = emptyBullets();
+  p0bullets[BulletId.B12mm] = 500;
+  p0bullets[BulletId.B9mm] = 500;
+  p0bullets[BulletId.Shell] = 100;
+
+  for (let t = 0; t < ticks; t++) {
+    let keys = 0;
+    let mouseXRel = 0;
+    let mouseButtons: number = MouseButton.Left;
+
+    if (t < 12) {
+      // let the auto rifle load (loadingTime 12)
+    } else if (t < 60) {
+      keys |= Key.Up;
+    } else if (t < 100) {
+      keys |= Key.Up | Key.LeftStrafe;
+    } else if (t < 140) {
+      mouseXRel = 4;
+    } else if (t < 180) {
+      keys |= Key.Down;
+    } else if (t < 220) {
+      keys |= Key.Up;
+      mouseXRel = -3;
+    } else if (t < 260) {
+      keys |= Key.Up;
+      if (t === 220) keys |= Key.Shift; // weapon switch
+      if (t === 240) mouseButtons |= MouseButton.Right; // switch back
+    } else if (t < 300) {
+      keys |= Key.Up | Key.RightStrafe;
+    } else if (t < 340) {
+      mouseXRel = 6;
+    } else {
+      keys |= Key.Left; // turn with keys
+      mouseButtons = 0;
+    }
+
+    inputs.push({ keys, mouseXRel, mouseButtons });
+  }
+
+  return {
+    seed: 12345,
+    ticks,
+    levelName: "levs/default/level1.lev",
+    sensitivity: 0.5,
+    mouseOwner: 0,
+    players: [
+      {
+        x: 250,
+        y: 190,
+        angle: 0,
+        energy: 100,
+        local: true,
+        weapons: p0weapons,
+        bullets: p0bullets,
+      },
+      {
+        x: 370,
+        y: 190,
+        angle: 180,
+        energy: 5,
+        local: false,
+        weapons: emptyWeapons(),
+        bullets: emptyBullets(),
+      },
+    ],
+    inputs,
+  };
+}
+
+/** Serialises a script to the binary `sim_gen replay` expects. */
+export function serializeScript(s: ReplayScript): Uint8Array {
+  const nameBytes = new TextEncoder().encode(s.levelName);
+  const size =
+    4 * 4 + // version, seed, ticks, nameLen
+    nameBytes.length +
+    4 + // sensitivity
+    4 + // mouseOwner
+    4 + // playerCount
+    s.players.length * (4 * 4 + 4 + 13 * 4 + 12 * 4) +
+    s.inputs.length * 3 * 4;
+  const buf = new ArrayBuffer(size);
+  const dv = new DataView(buf);
+  let o = 0;
+  const i32 = (v: number): void => {
+    dv.setInt32(o, v, true);
+    o += 4;
+  };
+  const u32 = (v: number): void => {
+    dv.setUint32(o, v, true);
+    o += 4;
+  };
+  const f32 = (v: number): void => {
+    dv.setFloat32(o, v, true);
+    o += 4;
+  };
+  u32(SCRIPT_VERSION);
+  i32(s.seed);
+  u32(s.ticks);
+  u32(nameBytes.length);
+  new Uint8Array(buf, o, nameBytes.length).set(nameBytes);
+  o += nameBytes.length;
+  f32(s.sensitivity);
+  i32(s.mouseOwner);
+  u32(s.players.length);
+  for (const p of s.players) {
+    f32(p.x);
+    f32(p.y);
+    f32(p.angle);
+    f32(p.energy);
+    i32(p.local ? 1 : 0);
+    for (let a = 0; a < 13; a++) i32(p.weapons[a] ?? 0);
+    for (let a = 0; a < 12; a++) i32(p.bullets[a] ?? 0);
+  }
+  for (const inp of s.inputs) {
+    u32(inp.keys);
+    i32(inp.mouseXRel);
+    u32(inp.mouseButtons);
+  }
+  return new Uint8Array(buf, 0, o);
+}
+
+function worldFromScript(level: Level, s: ReplayScript): SimWorld {
+  const w = new SimWorld(level, s.seed);
+  w.mouseSensitivity = s.sensitivity;
+  w.mouseOwner = s.mouseOwner;
+  w.players = s.players.map((rp) => {
+    const p = new SimPlayer();
+    p.x = rp.x;
+    p.y = rp.y;
+    p.angle = rp.angle;
+    p.energy = rp.energy;
+    p.local = rp.local;
+    p.weapons = rp.weapons.slice();
+    p.bullets = rp.bullets.slice();
+    if (p.local) w.initScr(p, DRAW_RECT);
+    return p;
+  });
+  return w;
+}
+
+/** Runs the replay and returns the same trace bytes `sim_gen` writes. */
+export function runReplay(levelBytes: Uint8Array, s: ReplayScript): Uint8Array {
+  const level = loadLevel(levelBytes);
+  const w = worldFromScript(level, s);
+
+  const parts: number[] = [];
+  const pushI32 = (v: number): void => {
+    parts.push(v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff);
+  };
+  const pushF32 = (v: number): void => {
+    const b = new ArrayBuffer(4);
+    new DataView(b).setFloat32(0, v, true);
+    const u = new Uint8Array(b);
+    parts.push(u[0], u[1], u[2], u[3]);
+  };
+
+  for (let t = 0; t < s.ticks; t++) {
+    w.tick(s.inputs[t], DRAW_RECT);
+    pushI32(t);
+    pushI32(w.players.length);
+    for (const p of w.players) {
+      pushF32(p.x);
+      pushF32(p.y);
+      pushF32(p.angle);
+      pushF32(p.energy);
+      pushF32(p.pushPower);
+      pushI32(p.screenX);
+      pushI32(p.screenY);
+      pushI32(p.curWeapon);
+      pushI32(p.secWeapon);
+      pushI32(p.anim);
+      pushI32(p.dead);
+      pushI32(p.hit);
+      pushI32(p.walk);
+      pushI32(p.shootCount);
+      pushI32(p.loadCounter);
+      pushI32(p.loadCounter2);
+      pushI32(p.secondaryCounter);
+      for (let a = 0; a < 13; a++) pushI32(p.weapons[a] ?? 0);
+      for (let a = 0; a < 12; a++) pushI32(p.bullets[a] ?? 0);
+    }
+    pushI32(w.bullets.length);
+    for (const b of w.bullets) {
+      pushF32(b.x);
+      pushF32(b.y);
+      pushF32(b.spriteAngle);
+      pushF32(b.speed);
+      pushI32(b.angle);
+      pushI32(b.counter);
+      pushI32(b.typeId);
+    }
+  }
+  return new Uint8Array(parts);
+}

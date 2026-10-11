@@ -3,10 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { readRef, readRefText, sha256 } from "../../data/__test__/helpers";
 import { decodePaletteTab } from "../../data/color-tables";
 import { mergeIni } from "../../data/config";
-import { EGameSprite, loadIngameData } from "../../data/ingame-data";
+import { loadIngameData } from "../../data/ingame-data";
 import { loadLevel } from "../../data/level";
-import { drawStaticFrame, screenPosFor } from "../draw-manager";
-import { GameDrawer, type DrawSprites } from "../drawer";
+import { drawStaticFrame, screenPosFor, toDrawSprites } from "../draw-manager";
+import { GameDrawer } from "../drawer";
 import { Framebuffer } from "../fb";
 
 // Byte-exact SHA-256 of the frames produced by the C++ rendering oracle
@@ -22,13 +22,7 @@ const FRAMES: Array<[string, string]> = [
 
 const paletteTab = decodePaletteTab(await readRef("palette.tab"));
 const ingame = await loadIngameData(mergeIni(await readRefText("default.ini")), readRef);
-const sprites: DrawSprites = {
-  floor: ingame.sprites[EGameSprite.Floor],
-  floor2: ingame.sprites[EGameSprite.Floor2],
-  wall2: ingame.sprites[EGameSprite.Wall2],
-  walls: [0, 1, 2, 3, 4, 5].map((h) => ingame.sprites[EGameSprite.Walls + h]),
-  wallClr: ingame.sprites[EGameSprite.WallClr],
-};
+const sprites = toDrawSprites(ingame);
 
 describe("static level rendering matches the C++ oracle byte-for-byte", () => {
   for (const [file, hash] of FRAMES) {

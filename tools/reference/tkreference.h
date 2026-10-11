@@ -237,16 +237,95 @@ static const char KBlockHeights[16 * 30] = {
 struct TBlock { int iType = 0, iNumber = 0, iShadow = 0, iHeight = 0, iCastDarkness = 0; };
 
 struct CoordI { int x = 0, y = 0; };
+struct CoordF { float x = 0, y = 0; };
+
+static const int KDustBlockAmount = 18;
+static const int KDustBlocks[KDustBlockAmount] = {
+	0, 16 * 4, 16 * 5, 16 * 5 + 2, 16 * 6 + 1, 16 * 6 + 1, 16 * 6 + 2, 16 * 7 + 1, 16 * 7 + 2,
+	16 * 7 + 3, 21, 22, 23, 24, 21 + 16, 22 + 16, 23 + 16, 24 + 16,
+};
 
 struct Level {
 	int iWidth = 0, iHeight = 0;
 	std::vector<TBlock> blocks;
 	TBlock iOutBlock;
 	std::vector<CoordI> iPlStart;
+	std::vector<unsigned char> reachable;
 	static bool FloorLevel(const TBlock& b) { return b.iType == 0 || b.iHeight == 0; }
 	TBlock& LevelData(int x, int y) {
 		if (x < 0 || y < 0 || x >= iWidth || y >= iHeight) return iOutBlock;
 		return blocks[y * iWidth + x];
+	}
+	bool InLevel(int x, int y) const { return x >= 0 && y >= 0 && x < iWidth && y < iHeight; }
+	// CLevel::Collision (free of the inline CRect). Coordinates in blocks.
+	bool Collision(int x, int y) const {
+		if (InLevel(x, y) && blocks[y * iWidth + x].iType == 0) return false;
+		return true;
+	}
+	// CLevel::VisibilityCheck. Coordinates in pixels; 1px accuracy.
+	bool VisibilityCheck(const CoordF& aSrc, const CoordF& aDst, CoordF* aCollisionPoint) const {
+		int iterations = (int)std::max(1.0f, std::max(std::fabs(aDst.x - aSrc.x), std::fabs(aDst.y - aSrc.y)));
+		float dx = aDst.x - aSrc.x;
+		float dy = aDst.y - aSrc.y;
+		int x_sign = dx < 0 ? -1 : (dx > 0 ? 1 : 0);
+		int y_sign = dy < 0 ? -1 : (dy > 0 ? 1 : 0);
+		float xDelta = dx / iterations;
+		float yDelta = dy / iterations;
+		CoordF oldPos = aSrc;
+		CoordF newPos;
+		for (int a = 0; a <= iterations; a++) {
+			newPos.x = aSrc.x + (xDelta * a);
+			newPos.y = aSrc.y + (yDelta * a);
+			if (Collision((int)(newPos.x / KBlockSpriteSize), (int)(newPos.y / KBlockSpriteSize))) {
+				if (aCollisionPoint) *aCollisionPoint = oldPos;
+				return false;
+			}
+			if (x_sign != 0 && y_sign != 0 && a > 0) {
+				if (Collision((int)((newPos.x - x_sign) / KBlockSpriteSize), (int)(newPos.y / KBlockSpriteSize)) &&
+					Collision((int)(newPos.x / KBlockSpriteSize), (int)((newPos.y - y_sign) / KBlockSpriteSize))) {
+					if (aCollisionPoint) *aCollisionPoint = oldPos;
+					return false;
+				}
+			}
+			oldPos = newPos;
+		}
+		if (aCollisionPoint) *aCollisionPoint = aDst;
+		return true;
+	}
+	bool Reachable(int x, int y) const {
+		if (!InLevel(x, y)) return false;
+		return reachable[y * iWidth + x] != 0;
+	}
+	bool DustBlock(int x, int y) const {
+		if (!InLevel(x, y)) return false;
+		int num = blocks[y * iWidth + x].iNumber;
+		for (int a = 0; a < KDustBlockAmount; a++)
+			if (num == KDustBlocks[a]) return true;
+		return false;
+	}
+	void GenerateReachableMap() {
+		reachable.assign((size_t)iWidth * iHeight, 0);
+		if (!iPlStart.empty()) RecurseReachable(iPlStart[0], true);
+	}
+	void RecurseReachable(CoordI aPos, bool aHoriz) {
+		if (!InLevel(aPos.x, aPos.y)) return;
+		if (Collision(aPos.x, aPos.y)) return;
+		if (Reachable(aPos.x, aPos.y)) return;
+		if (aHoriz) {
+			int xmin = aPos.x, xmax = aPos.x, y = aPos.y, a;
+			do { xmin--; } while (!Collision(xmin, y) && !Reachable(xmin, y) && InLevel(xmin, y));
+			do { xmax++; } while (!Collision(xmax, y) && !Reachable(xmax, y) && InLevel(xmax, y));
+			for (a = xmin + 1; a < xmax; a++) reachable[y * iWidth + a] = 1;
+			if (y - 1 >= 0) for (a = xmin + 1; a < xmax; a++) { CoordI p; p.x = a; p.y = y - 1; RecurseReachable(p, !aHoriz); }
+			if (y + 1 < iHeight) for (a = xmin + 1; a < xmax; a++) { CoordI p; p.x = a; p.y = y + 1; RecurseReachable(p, !aHoriz); }
+		} else {
+			int ymin = aPos.y, ymax = aPos.y, x = aPos.x, a;
+			do { ymin--; } while (!Collision(x, ymin) && !Reachable(x, ymin) && InLevel(x, ymin));
+			do { ymax++; } while (!Collision(x, ymax) && !Reachable(x, ymax) && InLevel(x, ymax));
+			for (a = ymin + 1; a < ymax; a++) reachable[a * iWidth + x] = 1;
+			if (x - 1 >= 0) for (a = ymin + 1; a < ymax; a++) { CoordI p; p.x = x - 1; p.y = a; RecurseReachable(p, !aHoriz); }
+			if (x + 1 < iWidth) for (a = ymin + 1; a < ymax; a++) { CoordI p; p.x = x + 1; p.y = a; RecurseReachable(p, !aHoriz); }
+		}
 	}
 };
 

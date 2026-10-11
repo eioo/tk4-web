@@ -19,20 +19,27 @@ Run it under `Xvfb` with deterministic input injection, or with a small scripted
 
 Building the whole game needs SDL 1.2/mixer/image/net. For the **asset** and **drawing**
 layers we instead keep small standalone C++ oracles that copy the original algorithms
-near-verbatim and need only libm:
+near-verbatim and need only libm (build them all with `bun run reference`):
 
 - `tools/reference/tkreference.h` — shared copies of `CPalette`, `CGraphicsGenerator`,
-  `CLevel` (heights + derived maps), `CGameDrawer` and the static `CGameDrawManager`
-  draws.
+  `CLevel` (heights + derived maps + collision/reachability), `CGameDrawer` and the static
+  `CGameDrawManager` draws.
 - `tools/reference/rotate_gen.cpp` — `RotateSprites` / `MakeFloors` / `ZoomWall`.
 - `tools/reference/render_gen.cpp` — static level frame (floor, shadows, camera-cone black
   parts, pseudo-3D walls) from a raw block dump produced by `tools/reference/dump-level.ts`.
+- `tools/reference/simreference.h` + `tools/reference/sim_gen.cpp` — the **simulation**:
+  `CMath`, glibc `rand()`, the weapon/bullet tables, `CCharacter::Move`, `CPlayer`
+  (input, movement, shooting, damage), `CBullet::Move` and the per-tick `RunFrame` order.
+  `sim_gen replay <leveldump> <script> <out.trace>` writes a per-tick state trace; the
+  script is produced by `tools/reference/dump-script.ts` from
+  `src/sim/replay.ts#buildScript` (the same script the TS test uses).
 
 The TypeScript tests hash the port's output and compare against the oracle's output
-(`sha256` over the pixel buffer), giving byte-exact verification without a screenshot
-workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors` and the static
-render path across old- and new-format levels. The full reference build is still needed
-for simulation, audio and menu parity.
+(`sha256` over the pixel buffer / trace), giving byte-exact verification without a
+screenshot workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors`, the
+static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`
+and a 400-tick player/bullet replay. The full reference build is still needed for audio
+and menu parity.
 
 ## Determinism
 
@@ -41,13 +48,16 @@ for simulation, audio and menu parity.
 The original calls `srand((unsigned)time(NULL))` then libc `rand()`. To reproduce:
 
 - Implement glibc's **TYPE_3** additive-feedback generator:
-  `r[i] = (r[i-3] + r[i-31]) >> 1`, output `r[i] >> 1` (with the first-output
-  adjustment), `srand` seeding `r[0]=seed`, and the discard of the first 310 outputs.
+  `r[i] = r[i-31] + r[i-3]` (mod 2^32, stored signed), output `r[i] >> 1`;
+  `srand(seed)` sets `state[0]=seed`, fills `state[1..30]` with the Park–Miller LCG
+  (`16807·lo − 2836·hi`, mod `2^31−1`), points `fptr=3/rptr=0`, then discards the first
+  310 outputs.
 - Expose explicit seeding for tests/replays; default to `Date.now()` at runtime.
 
-If exact libc parity proves hard across platforms, alternative: define the reference run
-using the port's RNG and compare *internal consistency* (same seed → same run) plus
-visual parity; but the strong claim of "same physics" is best served by matching glibc.
+Confirmed byte-for-byte against glibc in `src/core/__test__/rng.test.ts`
+(`srand(1); rand()` = 1804289383, …), so type-3 parity across platforms holds wherever
+the process uses glibc. (Other libc `rand()` implementations differ; the port always uses
+glibc's, matching the original's Linux build.)
 
 ### RNG call sites (order matters)
 
@@ -67,8 +77,18 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
 ### Known hazards
 
 - **Argument evaluation order.** Multiple `rand()` calls inside one expression (e.g.
-  `Explo`, bullet blood FX, `CheckBurning`) are unspecified in C++. The reference build's
-  compiler fixes an order; the port must match the order observed in the reference.
+  `Explo`, bullet blood FX, `CheckBurning`) are unspecified in C++; g++ evaluates
+  arguments **right-to-left**. The oracle makes that order explicit (assigns temporaries
+  in the observed order) so it does not depend on the compiler, and `src/sim/world.ts`
+  reproduces the same order. Any new multi-`rand()` expression must do the same.
+- **Rendering consumes RNG.** The original's `DrawSpots` (and some effects) call `rand()`
+  while drawing, so a real run's RNG stream is intertwined with rendering. The M3 sim
+  trace deliberately excludes rendering; when M5 adds spots/effects the render-side
+  `rand()` calls must be replicated at the same point in the frame or the two must be
+  decoupled and documented.
+- **Non-local players are static.** In the M3 replay a non-local player receives damage
+  and push but is never moved (the original would move it on its own client). Fine for
+  single-machine traces; multiplayer emulation is out of scope.
 - **`std::sort` not stable.** Enemies/body parts are sorted by X each tick; ties can
   reorder. Either replicate the exact algorithm or pin a reference where ties are absent.
 - **Catch-up ticks.** When a display frame is slow, the original runs multiple ticks,
@@ -80,14 +100,15 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
 
 1. **Unit tests** (`bun test`)
    - Decoders: EFP/FNT/PCX/lev/palette round-trips and known sizes.
-   - Math: `CMath` sin/cos/GetAngle/GetDist vs. C++ values.
+   - Math: `CMath` sin/cos table hash + `GetAngle`/`GetDist` vs. the C++ oracle.
    - RNG: `GlibcRandom` outputs vs. glibc `rand()` golden sequence.
    - `RotateSprites` etc. vs. reference images.
 2. **Golden state traces**
    - Seeded scenario scripts (spawn, run N ticks, issue inputs) produce a trace:
      entity positions/angles/HP, bullet counts, RNG draw count, money.
    - Compare port trace to a reference trace; assert equality (or a pinned, documented
-     acceptable difference).
+     acceptable difference). M3: `tools/reference/fixtures/replay1.{script,trace}` and
+     `src/sim/__test__/replay.test.ts` (400 ticks, byte-identical).
 3. **Golden frames**
    - At fixed scenarios, diff the presented framebuffer against a reference screenshot
      using pixel-diff/SSIM. Allow tolerance only for documented non-determinism.

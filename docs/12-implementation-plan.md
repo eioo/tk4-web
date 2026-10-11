@@ -68,6 +68,21 @@ around a level, shoot, and bullets collide/bounce exactly like the reference (st
 against a reference trace).
 ⚠️ RNG evaluation order (doc 13); camera `MoveScr` integer quirks.
 
+**Status:** done. `src/core/rng.ts` (glibc TYPE_3 `rand()`), `src/core/math.ts` (`CMath`
+tables + `CCoord` helpers), `src/sim/types.ts` (weapon/bullet type tables),
+`src/sim/level-physics.ts` (`Collision`/`VisibilityCheck`) and `src/sim/world.ts`
+(`CCharacter::Move`, `CPlayer` movement/input/shooting/damage, `CBullet::Move`, the
+per-tick `RunFrame` order) are ported. A 400-tick scripted replay (movement, strafe,
+key/mouse turning, weapon switching, firing, bullet bounces, two-player damage/death)
+runs **byte-for-byte identical** to `tools/reference/sim_gen.cpp` — see
+`src/sim/__test__/replay.test.ts` and the committed `tools/reference/fixtures/`. The
+browser now runs the real sim (`src/main.ts`): WASD + mouse aim, shooting, weapon
+switching, with the player sprite, its shadow, bullets and rockets drawn. Effect
+rendering, enemies, crates and body parts are M4; lights/HUD are M5.
+
+The sim does **not** yet consume RNG from rendering (the original's `DrawSpots` etc.
+touch `rand()`), and non-local players are static here — both documented in doc 13.
+
 ---
 
 ## M4 — Entities: enemies, AI, effects, body parts, crates

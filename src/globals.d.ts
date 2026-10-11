@@ -11,4 +11,14 @@ interface Window {
   tk4Ready?: boolean;
   /** Set by `main.ts` if boot fails; holds the error message. */
   tk4Error?: string;
+  /** Dev-only snapshot of the running simulation (for browser verification). */
+  tk4State?: () => {
+    x: number;
+    y: number;
+    angle: number;
+    energy: number;
+    weapon: number;
+    ammo: number;
+    bullets: number;
+  };
 }

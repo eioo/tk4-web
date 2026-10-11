@@ -4,6 +4,7 @@
  * fixed-point triangle rasteriser used by the camera-cone shadow cast.
  */
 
+import { addMovement } from "../core/math";
 import type { ColorTables } from "../data/color-tables";
 import { KBlockSpriteSize } from "../data/constants";
 import { EBlockTypeFloor } from "../data/level";
@@ -35,6 +36,12 @@ export interface DrawSprites {
   /** Wall sheets by height, index 0..5 (`EGameSpriteWalls` + height). */
   walls: SpriteView[];
   wallClr: SpriteView;
+  /** Rambo sheets, index 0..3 (`EGameSpriteRambo1` + weapon sprite). */
+  rambo: SpriteView[];
+  /** `EGameSpriteShadow` (human shadow blob). */
+  shadowSprite: SpriteView;
+  /** Looks up a sheet by `EGameSprite` id (bullets, effects, ...). */
+  spriteOf: (id: number) => SpriteView;
 }
 
 function setRange(buf: Uint8Array, offset: number, value: number, length: number): void {
@@ -263,6 +270,70 @@ export class GameDrawer {
         const colo = shadowSprite[s + b];
         if (colo !== 0) px[vb + b] = shadow[px[vb + b] * 16 + colo];
       }
+    }
+  }
+
+  /**
+   * `CGameDrawer::DrawRambo` — the player sprite. `color` recolours indices
+   * 80..95 (`KPlayerColor` base + offset). `number` selects the animation row.
+   */
+  drawRambo(
+    posX: number,
+    posY: number,
+    angle: number,
+    number: number,
+    color: number,
+    sprite: SpriteView,
+    fb: Framebuffer,
+    draw: Rect,
+  ): void {
+    const clip = this.clipRect(posX, posY, 28, 28, draw);
+    if (!rectValid(clip)) return;
+
+    const dbufStart = (posY + clip.top) * fb.width + posX;
+    let sprno = 80 - angle + 20; // KPlayerSpriteAmount/4 == +90 degrees
+    while (sprno >= 80) sprno -= 80;
+    while (sprno < 0) sprno += 80;
+
+    const sprOfs = (1 + number * 29 + clip.top) * sprite.width + sprno * 29 + 1;
+    const px = fb.pixels;
+    let c = 0;
+    let d = 0;
+    for (let a = 0; a < rectHeight(clip); a++, c += fb.width, d += 29 * 80) {
+      for (let b = clip.left; b < clip.right; b++) {
+        const colo = sprite.pixels[sprOfs + d + b];
+        if (colo) {
+          // Replaceable player colour band 80..95.
+          px[dbufStart + c + b] = colo >= 80 && colo <= 95 ? (color + (colo - 80)) & 0xff : colo;
+        }
+      }
+    }
+  }
+
+  /** `CGraphicsBuffer::PutPixelClip`. */
+  private putPixelClip(x: number, y: number, col: number, fb: Framebuffer, draw: Rect): void {
+    if (x >= draw.left && x < draw.right && y >= draw.top && y < draw.bottom) {
+      fb.pixels[y * fb.width + x] = col;
+    }
+  }
+
+  /** `CGameDrawer::DrawRocket` — a 2px-wide trail stepping 1px per iteration. */
+  drawRocket(
+    x: number,
+    y: number,
+    angle: number,
+    length: number,
+    color: number,
+    fb: Framebuffer,
+    draw: Rect,
+  ): void {
+    let ofs = { x: 0, y: 0 };
+    for (let a = 0; a < length; a++) {
+      this.putPixelClip(Math.trunc(x + ofs.x), Math.trunc(y + 1 + ofs.y), color, fb, draw);
+      this.putPixelClip(Math.trunc(x + ofs.x), Math.trunc(y + ofs.y), color, fb, draw);
+      this.putPixelClip(Math.trunc(x + ofs.x + 1), Math.trunc(y + 1 + ofs.y), color, fb, draw);
+      this.putPixelClip(Math.trunc(x + ofs.x + 1), Math.trunc(y + ofs.y), color, fb, draw);
+      ofs = addMovement(ofs, angle, 1);
     }
   }
 

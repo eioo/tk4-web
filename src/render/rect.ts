@@ -46,7 +46,4 @@ export function fixSmall(r: Rect, p: Point): void {
   if (p.y === r.bottom) p.y = r.bottom - 1;
 }
 
-/** Integer division that truncates toward zero (C++ `int` division). */
-export function idiv(a: number, b: number): number {
-  return Math.trunc(a / b);
-}
+export { idiv } from "../core/math";

@@ -14,6 +14,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "assets": "bun run tools/build-assets.ts",
+    "reference": "sh tools/build-reference.sh",
     "test": "bun test"
   },
   "devDependencies": {

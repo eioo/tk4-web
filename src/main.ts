@@ -3,16 +3,18 @@ import { decodePaletteTab } from "./data/color-tables";
 import { mergeIni } from "./data/config";
 import { loadIngameData } from "./data/ingame-data";
 import { loadLevel } from "./data/level";
-import { drawStaticFrame, screenPosFor, toDrawSprites } from "./render/draw-manager";
+import { drawFrame, toDrawSprites } from "./render/draw-manager";
 import { GameDrawer } from "./render/drawer";
 import { Framebuffer } from "./render/fb";
 import { Canvas2DPresenter } from "./render/presenters/canvas2d";
+import { BulletId, WeaponId, WeaponTypes } from "./sim/types";
+import { Key, MouseButton, SimPlayer, SimWorld, type SimInput } from "./sim/world";
 
 /** Internal (video-mode) resolution — the original's in-game default. */
 const WIDTH = 640;
 const HEIGHT = 480;
 
-/** Level shown at boot (M2 renders a static level with a free camera). */
+/** Level shown at boot (M3 runs a playable single-player level). */
 const LEVEL_PATH = "levs/default/level1.lev";
 
 async function loadBytes(path: string): Promise<Uint8Array> {
@@ -25,6 +27,44 @@ async function loadText(path: string): Promise<string> {
   const res = await fetch(`assets/${path}`);
   if (!res.ok) throw new Error(`missing asset "assets/${path}" — run "bun run assets" first`);
   return res.text();
+}
+
+/** Maps held physical keys (`KeyboardEvent.code`) to the simulation key bitmask. */
+function keyMask(held: ReadonlySet<string>): number {
+  let k = 0;
+  if (held.has("KeyW") || held.has("ArrowUp")) k |= Key.Up;
+  if (held.has("KeyS") || held.has("ArrowDown")) k |= Key.Down;
+  if (held.has("ArrowLeft")) k |= Key.Left;
+  if (held.has("ArrowRight")) k |= Key.Right;
+  if (held.has("KeyA")) k |= Key.LeftStrafe;
+  if (held.has("KeyD")) k |= Key.RightStrafe;
+  if (held.has("Space")) k |= Key.Shoot;
+  if (held.has("ShiftLeft") || held.has("ShiftRight")) k |= Key.Shift;
+  return k;
+}
+
+function makePlayer(startX: number, startY: number): SimPlayer {
+  const p = new SimPlayer();
+  p.x = startX * 20;
+  p.y = startY * 20;
+  p.energy = 100;
+  p.local = true;
+  p.weapons[WeaponId.Fist] = 1;
+  p.weapons[WeaponId.Pistol] = 1;
+  p.weapons[WeaponId.Shotgun] = 1;
+  p.weapons[WeaponId.Uzi] = 1;
+  p.weapons[WeaponId.AutoRifle] = 1;
+  p.weapons[WeaponId.RocketLauncher] = 1;
+  p.weapons[WeaponId.GrenadeLauncher] = 1;
+  p.weapons[WeaponId.FlameThrower] = 1;
+  p.bullets[BulletId.B9mm] = 600;
+  p.bullets[BulletId.Shell] = 300;
+  p.bullets[BulletId.B12mm] = 600;
+  p.bullets[BulletId.MediumRockets] = 50;
+  p.bullets[BulletId.Grenades] = 50;
+  p.bullets[BulletId.Gas] = 1200;
+  p.curWeapon = WeaponId.Pistol;
+  return p;
 }
 
 async function boot(): Promise<void> {
@@ -50,43 +90,113 @@ async function boot(): Promise<void> {
   const drawer = new GameDrawer(decodePaletteTab(paletteTabBytes));
   const drawRect = fb.rect();
 
-  // Fixed camera at the first player start; arrow keys pan it for inspection.
   const start = level.starts[0] ?? { x: level.width >> 1, y: level.height >> 1 };
-  const location = { x: start.x * 20 + 10, y: start.y * 20 + 10 };
+  const world = new SimWorld(level, (Date.now() / 1000) >>> 0);
+  world.mouseOwner = 0;
+  world.mouseSensitivity = 0.5;
+  const player = makePlayer(start.x, start.y);
+  world.players = [player];
+  world.initScr(player, drawRect);
+  // ---- input ----
+  const held = new Set<string>();
+  let mouseDX = 0;
+  let mouseButtons = 0;
+  let wheelTicks = 0;
+  const canvas = presenter.canvas;
 
-  const keys = new Set<string>();
   window.addEventListener("keydown", (e) => {
-    keys.add(e.key);
-    if (e.key.startsWith("Arrow")) e.preventDefault();
+    held.add(e.code);
+    if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
   });
-  window.addEventListener("keyup", (e) => keys.delete(e.key));
+  window.addEventListener("keyup", (e) => held.delete(e.code));
+  window.addEventListener("blur", () => {
+    held.clear();
+    mouseButtons = 0;
+  });
 
+  canvas.addEventListener("mousedown", (e) => {
+    if (document.pointerLockElement !== canvas) {
+      void canvas.requestPointerLock();
+      return;
+    }
+    if (e.button === 0) mouseButtons |= MouseButton.Left;
+    if (e.button === 2) mouseButtons |= MouseButton.Right;
+  });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0) mouseButtons &= ~MouseButton.Left;
+    if (e.button === 2) mouseButtons &= ~MouseButton.Right;
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (document.pointerLockElement === canvas) mouseDX += e.movementX;
+  });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      wheelTicks += e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
+    },
+    { passive: false },
+  );
+
+  const hint = root.ownerDocument.createElement("div");
+  hint.textContent =
+    "Click to play — WASD move, mouse aim, click/space shoot, wheel/Shift change weapon";
+  Object.assign(hint.style, {
+    font: "13px/1.5 monospace",
+    color: "#9aa",
+    padding: "8px",
+    textAlign: "center",
+  } satisfies Partial<CSSStyleDeclaration>);
+  root.appendChild(hint);
+  const updateHint = (): void => {
+    hint.style.visibility = document.pointerLockElement === canvas ? "hidden" : "visible";
+  };
+  document.addEventListener("pointerlockchange", updateHint);
+
+  // ---- loop ----
   const loop = createLoop({
     tick: () => {
-      const step = 5;
-      if (keys.has("ArrowLeft")) location.x -= step;
-      if (keys.has("ArrowRight")) location.x += step;
-      if (keys.has("ArrowUp")) location.y -= step;
-      if (keys.has("ArrowDown")) location.y += step;
+      let buttons = mouseButtons;
+      if (wheelTicks > 0) buttons |= MouseButton.WheelDown;
+      else if (wheelTicks < 0) buttons |= MouseButton.WheelUp;
+      wheelTicks = 0;
+      const input: SimInput = { keys: keyMask(held), mouseXRel: mouseDX, mouseButtons: buttons };
+      mouseDX = 0;
+      world.tick(input, drawRect);
     },
     render: () => {
       fb.clear(0);
       dark.fill(0);
-      drawStaticFrame({
-        level,
-        sprites,
-        drawer,
-        fb,
-        dark,
-        drawRect,
-        screenPos: screenPosFor(location, drawRect),
-        playerLocation: location,
-      });
+      drawFrame(
+        {
+          level,
+          sprites,
+          drawer,
+          fb,
+          dark,
+          drawRect,
+          screenPos: { x: player.screenX, y: player.screenY },
+          playerLocation: { x: player.x, y: player.y },
+          players: world.players,
+          bullets: world.bullets,
+        },
+        HEIGHT,
+      );
       presenter.present(fb, ingame.palette);
     },
   });
   loop.start();
   window.tk4Ready = true;
+  window.tk4State = () => ({
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+    energy: player.energy,
+    weapon: player.curWeapon,
+    ammo: player.bullets[WeaponTypes[player.curWeapon].bulletType],
+    bullets: world.bullets.length,
+  });
 }
 
 boot().catch((err: unknown) => {
