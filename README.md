@@ -9,6 +9,8 @@ draw order, sounds and art as the original C++/SDL 1.2 game.
 
 > ### ▶ [Play in your browser at **tk4.space**](https://tk4.space)
 
+![Tapan Kaikki 4 running in the browser — a top-down view of a software-rendered level](screenshot.png)
+
 The original source lives in `tapankaikki4/` (a reference checkout of the [upstream
 repo](https://github.com/suomipelit/tapankaikki4), not part of this repository's
 history). The reverse-engineering notes and the design docs are in
