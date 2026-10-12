@@ -159,6 +159,8 @@ export class App implements MenuHost {
   private nextLevelPending = false;
   private levelBytes = new Map<number, Uint8Array>();
   private levelData = new Map<number, Level>();
+  /** Episode/game-mode identity of the cached `levelBytes`/`levelData`. */
+  private levelBytesKey: string | null = null;
   private session: GameSession | null = null;
   private userQuit = false;
   private gameOver = false;
@@ -675,6 +677,7 @@ export class App implements MenuHost {
     this.shopRng = new GlibcRandom((Date.now() / 1000) >>> 0);
     this.levelBytes.clear();
     this.levelData.clear();
+    this.levelBytesKey = `${this.gameMode.dmEpisodes() ? "dm" : "sp"}:${episode}`;
     const files = epi.levels.map((l) => l.file);
     void Promise.all(
       files.map(async (file, index) => {
@@ -1460,12 +1463,16 @@ export class App implements MenuHost {
     }
     this.stats.recording = message.index;
 
-    this.levelBytes.clear();
     this.levelData.clear();
+    const key = `${this.gameMode.dmEpisodes() ? "dm" : "sp"}:${settings.episode}`;
+    if (this.levelBytesKey !== key) {
+      this.levelBytes.clear();
+      this.levelBytesKey = key;
+    }
     const files = epi.levels.map((l) => l.file);
     void Promise.all(
       files.map(async (file, index) => {
-        this.levelBytes.set(index, await this.loadBytes(file));
+        if (!this.levelBytes.has(index)) this.levelBytes.set(index, await this.loadBytes(file));
       }),
     )
       .then(() => this.ensureLevelIngame(this.episode, message.index))
@@ -1809,9 +1816,21 @@ export class App implements MenuHost {
         }
         case "PageUp":
         case "PageDown": {
+          const delta = code === "PageUp" ? 0.05 : -0.05;
+          if (this.online) {
+            // Online the sim runs at sensitivity 1.0; adjust our pre-scale.
+            this.opts.data.mouseSensitivity = Math.min(
+              Math.max(this.opts.data.mouseSensitivity + delta, 0),
+              10,
+            );
+            this.messageBoard.addMessage(
+              `Mouse sensitivity ${(this.opts.data.mouseSensitivity * 100).toFixed(2)}`,
+              this.clock,
+            );
+            break;
+          }
           const world = this.session?.world;
           if (!world) break;
-          const delta = code === "PageUp" ? 0.05 : -0.05;
           world.mouseSensitivity = Math.min(Math.max(world.mouseSensitivity + delta, 0), 10);
           this.messageBoard.addMessage(
             `Mouse sensitivity ${(world.mouseSensitivity * 100).toFixed(2)}`,

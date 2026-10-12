@@ -186,9 +186,6 @@ export class GameSession {
       this.blackRects = [];
       this.viewSeats = [onlineSeat];
       this.world.perSeatMouse = true;
-      // Online the client pre-scales `mouseXRel` by its own sensitivity, so
-      // every client applies the identical angle delta (sensitivity 1.0).
-      this.world.mouseSensitivity = 1.0;
     } else {
       this.drawRects = playerDrawRects(fb.width, fb.height, players.length);
       this.blackRects = blackRects(fb.width, fb.height, players.length);
@@ -208,6 +205,9 @@ export class GameSession {
     world.suicideTexts = ingame.suicideTexts;
     world.mouseOwner = players.length > 0 ? 0 : -1;
     world.mouseSensitivity = 0.5;
+    // Online the client pre-scales `mouseXRel` by its own sensitivity, so every
+    // client must apply the identical angle delta (sensitivity 1.0).
+    if (onlineSeat >= 0) world.mouseSensitivity = 1.0;
     world.textLength = (text: string) => fontLength(this.hud.font, text);
     world.players = players;
 
