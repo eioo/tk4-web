@@ -41,8 +41,10 @@ this repository. The reverse-engineering notes and the design docs are in
 ## Requirements
 
 - [Bun](https://bun.sh) — package manager, runtime, test runner and bundler.
-- That's it for building and running. Parity testing against the C++ oracle additionally
-  needs a C++ compiler (`g++`); see [Tooling & Environment](docs/tooling-and-environment.md).
+- [Git](https://git-scm.com/) — needed on the first run: `bun run assets` uses it to
+  clone the original game data from upstream.
+- Parity testing against the C++ oracle additionally needs a C++ compiler (`g++`); see
+  [Tooling & Environment](docs/tooling-and-environment.md).
 
 ## Quick start
 
