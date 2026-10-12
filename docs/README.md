@@ -5,9 +5,11 @@ that moves" shooter, 1–4 players, C++/SDL 1.2) to the browser with **Bun** and
 **custom canvas/WebGL renderer** (no game framework), as close to a 1:1 reproduction as
 practical.
 
-The original source lives in [`../tapankaikki4/`](../tapankaikki4/). This `docs/`
-tree captures how the original engine works, what every data format contains, and how
-the web port is built.
+The original C++ source is a reference checkout of the [upstream
+repo](https://github.com/suomipelit/tapankaikki4), fetched into `../tapankaikki4/`
+on demand by the asset pipeline (see [Asset Pipeline](asset-pipeline.md)); it is not
+committed. This `docs/` tree captures how the original engine works, what every data
+format contains, and how the web port is built.
 
 ## Purpose
 
