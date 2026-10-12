@@ -115,6 +115,8 @@ export interface MenuHost {
   joinGame(code: string): void;
   /** Netplay: leave the current room and disconnect. */
   leaveNet(): void;
+  /** Netplay: ask the server to start the match now (host, full lobby). */
+  startMatch(): void;
   /** Netplay: the current room info, or null when not connected. */
   netLobby(): RoomInfo | null;
   netStatus(): NetStatus;
@@ -1377,6 +1379,27 @@ export class StartJoinItem extends MenuItem {
   }
 }
 
+/** Asks the server to start the match now (used for a rematch from the lobby). */
+export class StartMatchItem extends MenuItem {
+  override handleKeyPress(key: KeyPress): MenuAction {
+    if (this.actionKey(key)) {
+      this.parent.host.startMatch();
+      return MenuAction.Processed;
+    }
+    return MenuAction.NotProcessed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
 /** Static lobby line (code / roster / status); never selectable. */
 export class LabelItem extends MenuItem {
   constructor(parent: MenuBase, text = "") {
@@ -1756,6 +1779,7 @@ export class LobbyMenu extends MenuBase {
     this.statusItem = new LabelItem(this, "");
     this.items.push(this.statusItem);
     this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartMatchItem(this, "start game"));
     this.items.push(new ExitItem(this, "leave lobby"));
   }
 
@@ -1779,7 +1803,11 @@ export class LobbyMenu extends MenuBase {
         this.roster[i].setLabel(`${player.name}${host}${me}`);
       }
       const connected = lobby.players.filter((p) => p.connected).length;
-      this.statusItem.setLabel(`waiting for players ${connected}/${lobby.settings.players}…`);
+      this.statusItem.setLabel(
+        connected >= lobby.settings.players
+          ? "roster full - start game when ready"
+          : `waiting for players ${connected}/${lobby.settings.players}…`,
+      );
     } else {
       this.statusItem.setLabel(`connecting… (${this.host.netStatus()})`);
     }

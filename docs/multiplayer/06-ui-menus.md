@@ -164,3 +164,8 @@ like the other numerics.
   Escape paths both leave the room.
 - **`c.error`** is shown on the message board but does not force a state change
   (the user retries); an unexpected socket close returns to `Online`.
+- **Lobby "start game"**: because a full lobby does not auto-start again after a
+  match ends, the lobby has a host action that re-sends the current settings to
+  ask the server to start (`MenuHost.startMatch()`); the server's normal
+  auto-start-on-full path handles it. The status line reads `roster full - start
+  game when ready` when the roster is complete.

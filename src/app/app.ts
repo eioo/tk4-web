@@ -1623,6 +1623,12 @@ export class App implements MenuHost {
     this.online = false;
   }
 
+  /** Re-send the current settings to ask the server to start (host, full lobby). */
+  startMatch(): void {
+    const settings = this.net?.room?.settings;
+    if (settings) this.net?.sendSettings(settings);
+  }
+
   netLobby(): RoomInfo | null {
     return this.net?.room ?? null;
   }

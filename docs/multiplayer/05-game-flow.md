@@ -109,7 +109,8 @@ map to menu screens (`LOBBY`) and the existing `MainState.Game` sub-states
   1. stop the session, clear the level;
   2. return to the room's **lobby screen** with the roster intact (players who
      left remain as idle slots until they leave the lobby or the room closes);
-  3. the host may change settings (03 §5) and a new `levelStart` can follow.
+  3. the host may start a rematch from the lobby ("start game", which re-sends
+     the settings) or change settings (03 §5); a new `levelStart` then follows.
 - The socket is never recreated for this.
 
 ## 6. Disconnects and host migration

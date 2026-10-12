@@ -17,6 +17,7 @@ interface NetCalls {
   hosting: number;
   joins: string[];
   leaves: number;
+  starts: number;
 }
 
 function makeHost(): {
@@ -29,7 +30,7 @@ function makeHost(): {
   const buffer = new Framebuffer(640, 480);
   const changes: MenuState[] = [];
   const netState: { lobby: RoomInfo | null; seat: number } = { lobby: null, seat: -1 };
-  const calls: NetCalls = { hosting: 0, joins: [], leaves: 0 };
+  const calls: NetCalls = { hosting: 0, joins: [], leaves: 0, starts: 0 };
   const options = new Options(
     [],
     [{ name: "Test", levels: [{ file: "levs/test/level1.lev", name: "The Test" }] }],
@@ -66,6 +67,7 @@ function makeHost(): {
     startHosting: () => calls.hosting++,
     joinGame: (code) => calls.joins.push(code),
     leaveNet: () => calls.leaves++,
+    startMatch: () => calls.starts++,
     netLobby: () => netState.lobby,
     netStatus: () => "lobby",
     netSeat: () => netState.seat,
@@ -193,7 +195,7 @@ describe("multiplayer menus", () => {
   });
 
   test("lobby draws the code and roster and exits to the online menu", () => {
-    const { host, buffer, netState, changes } = makeHost();
+    const { host, buffer, netState, changes, calls } = makeHost();
     netState.lobby = {
       code: "KQZAB",
       hostSeat: 0,
@@ -220,7 +222,10 @@ describe("multiplayer menus", () => {
     buffer.clear(0);
     container.draw();
     expect(buffer.pixels.some((v) => v !== 0)).toBe(true);
-    container.runFrame(key(SDLK.RETURN)); // the only active item: leave lobby
+    container.runFrame(key(SDLK.RETURN)); // start game
+    expect(calls.starts).toBe(1);
+    container.runFrame(key(SDLK.DOWN));
+    container.runFrame(key(SDLK.RETURN)); // leave lobby
     expect(changes).toEqual([MenuState.Online]);
     expect(host.netLobby()?.code).toBe("KQZAB");
   });
