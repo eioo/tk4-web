@@ -34,6 +34,7 @@ random-number behaviour.
 | 12 | [Implementation Plan](12-implementation-plan.md) | Incremental milestones with deliverables and acceptance criteria |
 | 13 | [Parity, Testing & Risks](13-parity-testing-and-risks.md) | Determinism, glibc `rand()`, reference capture, pixel diffing, known hazards |
 | 14 | [Tooling & Environment](14-tooling-and-environment.md) | What must be installed (Bun, SDL 1.2, Xvfb, ffmpeg, …) and why |
+| 15 | [Online Multiplayer](multiplayer/README.md) | Netplay design: deterministic lockstep over Bun WebSockets, lobby, coop progression, DM frag limit |
 
 ## TL;DR of the plan
 

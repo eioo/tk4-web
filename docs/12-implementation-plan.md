@@ -418,7 +418,15 @@ Caveat: DM is not in the parity oracle — `RandomPlace` and the kill texts cons
 shared RNG, and the oracle models the cooperative path only — so DM is verified in the
 browser rather than byte-for-byte (docs/13).
 
-## M13 — Netplay (WebRTC/WebSocket)
+## M13 — Netplay (WebSocket)
+
+> **Designed in [`docs/multiplayer/`](multiplayer/README.md).** The locked design is
+> deterministic lockstep over Bun WebSockets: every client runs the full `SimWorld`
+> from server-broadcast input bundles, with the server as lobby + tick master (no
+> simulation). It covers host/join by 5-letter code, coop full-episode progression
+> (statistics + per-player shop), online deathmatch with a host-configurable frag
+> limit, idle seats and host migration. Milestones N1–N4 live in
+> [07-implementation-plan.md](multiplayer/07-implementation-plan.md).
 
 🎯 Greenfield peer sync built on the split-screen model. The original's network layer is
 compiled-out dead code with empty `Send`/`Available` (docs/13), so there is no wire format
