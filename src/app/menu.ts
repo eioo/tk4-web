@@ -1628,7 +1628,7 @@ export class NetOptionsMenu extends MenuBase {
 export class MenuContainer {
   private readonly menus: MenuBase[] = [];
   private state = MenuState.Main;
-  private skipDraw = false;
+  private suspended = false;
 
   constructor(private readonly host: MenuHost) {
     this.menus[MenuState.AudioOptions] = new AudioOptionsMenu(host);
@@ -1661,21 +1661,29 @@ export class MenuContainer {
 
   /** Returns true when the key was consumed (used for the click sound). */
   runFrame(key: KeyPress | null): boolean {
-    this.skipDraw = false;
+    // `CGameMenuItemExecSingleGame` sets `iSkipDraw` and the original then
+    // starts the fade before the menu runs again. Here the level load is
+    // async, so the freeze must hold until the state actually changes.
+    if (this.suspended) return false;
     return this.menus[this.state].runMenu(key);
   }
 
   draw(): void {
-    if (this.skipDraw) return;
+    if (this.suspended) return;
     this.menus[this.state].draw();
   }
 
   enterState(): void {
+    this.suspended = false;
     this.menus[this.state].activateMenu();
   }
 
   skipDrawOnce(): void {
-    this.skipDraw = true;
+    this.suspended = true;
+  }
+
+  isSuspended(): boolean {
+    return this.suspended;
   }
 
   doFullRedraw(): void {

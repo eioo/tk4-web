@@ -109,6 +109,14 @@ export class App implements MenuHost {
   private readonly fb = new Framebuffer(WIDTH, HEIGHT);
   private readonly post = new Framebuffer(WIDTH, HEIGHT);
   private readonly dark = new Uint8Array(WIDTH * HEIGHT);
+  /**
+   * Last "live" frame. The original renders with dirty areas and never clears
+   * the buffer between states, so its overlay states (`CGUIStateQuit`,
+   * `CGameSubStateQuit`) and the menu freeze during a game start show the
+   * previous frame underneath. This port redraws from scratch, so those states
+   * blit this snapshot instead.
+   */
+  private readonly snapshot = new Uint8Array(WIDTH * HEIGHT);
   private readonly fader = new GraphicsFader();
   private readonly sound = new SoundPlayer();
   private readonly music = new MusicPlayer();
@@ -268,7 +276,23 @@ export class App implements MenuHost {
     this.fb.clear(0);
     this.drawState();
     this.messageBoard.draw(this.fontSet.get(GameFont.SmallFont).font, this.fb);
+    // Keep the last frame for overlay states; don't overwrite it while an
+    // overlay (quit prompt / frozen menu) is being drawn on top of it.
+    if (!this.overlayFrozen()) this.snapshot.set(this.fb.pixels);
     this.present(this.fb, this.palette, 256);
+  }
+
+  /**
+   * True while the current state draws a frozen previous frame instead of a
+   * freshly redrawn one (the quit overlays and the menu during a game start).
+   */
+  private overlayFrozen(): boolean {
+    if (this.mainState === MainState.Quit) return true;
+    if (this.mainState === MainState.Game && this.gameState === GameState.Quit) return true;
+    if (this.mainState === MainState.Menu && (this.menuContainer?.isSuspended() ?? false)) {
+      return true;
+    }
+    return false;
   }
 
   private present(buffer: Framebuffer, palette: Palette, mul: number): void {
@@ -491,16 +515,22 @@ export class App implements MenuHost {
         this.fb.pixels.set(this.menuData.sprites.tkLogo.pixels);
         break;
       case MainState.Menu:
-        this.fb.pixels.set(this.menuData.sprites.menuBackground.pixels);
-        this.menuContainer.draw();
+        if (this.menuContainer.isSuspended()) {
+          // A game start is loading: the original's `SkipDrawOnce` keeps the
+          // last menu frame on screen until the fade-out takes over.
+          this.fb.pixels.set(this.snapshot);
+        } else {
+          this.fb.pixels.set(this.menuData.sprites.menuBackground.pixels);
+          this.menuContainer.draw();
+        }
         break;
       case MainState.Game:
         this.drawGame();
         break;
       case MainState.Quit:
-        // `CGUIStateQuit` draws over the last frame; approximate it with the
-        // menu background underneath the confirmation box.
-        this.fb.pixels.set(this.menuData.sprites.menuBackground.pixels);
+        // `CGUIStateQuit` draws the confirmation box over the last frame (the
+        // original never clears between states, so the menu stays visible).
+        this.fb.pixels.set(this.snapshot);
         this.drawQuitMenu();
         break;
       default:
@@ -1015,7 +1045,9 @@ export class App implements MenuHost {
         this.fb.pixels.set(this.menuData.sprites.victoryScreen.pixels);
         break;
       case GameState.Quit:
-        this.session?.draw();
+        // `CGameSubStateQuit` overlays the frozen frame: the running world, or
+        // the level-info screen when quit was pressed there.
+        this.fb.pixels.set(this.snapshot);
         this.drawGameQuit();
         break;
       case GameState.Statistics:

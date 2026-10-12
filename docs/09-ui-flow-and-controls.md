@@ -85,6 +85,14 @@ DM speed `KPlayerRunSpeed=1.0`, `iEnemiesOnGame=true`.
 
 Transitions are asserted in `CGameState.cpp` (doc 02).
 
+**Overlays and frames.** The original never clears the draw buffer between states: it
+only redraws dirty areas, so `CGUIStateQuit` (main-menu quit) and `CGameSubStateQuit`
+(in-game quit) draw their box/text *over the last frame* (menu or level-info/ongoing).
+Likewise a game start calls `SkipDrawOnce()` so the episode list stays on screen while
+the fade-out runs — no menu redraw in between. The port redraws in full each frame, so it
+keeps a snapshot of the last live frame and blits that for these overlay/frozen cases
+(`App.overlayFrozen`, `MenuContainer.isSuspended`).
+
 ### Shop
 
 `cdynshopdata`/`CGameSubStateShop`: three categories — weapons, ammo, special

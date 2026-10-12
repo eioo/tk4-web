@@ -99,4 +99,23 @@ describe("menu framework", () => {
     container.runFrame(key(SDLK.ESCAPE));
     expect(changes).toEqual([MenuState.Main]);
   });
+
+  test("a game start suspends the menu until the state changes", () => {
+    const { host, buffer } = makeHost();
+    const container = new MenuContainer(host);
+    container.enterState();
+    buffer.clear(40);
+    container.skipDrawOnce();
+
+    expect(container.isSuspended()).toBe(true);
+    expect(container.runFrame(key(SDLK.RETURN))).toBe(false);
+    buffer.clear(0);
+    container.draw();
+    expect(buffer.pixels.every((v) => v === 0)).toBe(true);
+
+    container.enterState();
+    expect(container.isSuspended()).toBe(false);
+    container.draw();
+    expect(buffer.pixels.some((v) => v !== 0)).toBe(true);
+  });
 });
