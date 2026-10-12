@@ -9,6 +9,8 @@
  */
 
 import { fontWrite, HAlign, VAlign } from "../data/font";
+import type { NetStatus } from "../net/client";
+import { KFRAG_LIMIT_MAX, KFRAG_LIMIT_MIN, type RoomInfo } from "../net/protocol";
 import type { Framebuffer } from "../render/fb";
 import type { Rect } from "../render/rect";
 import { SystemFonts, GameFont, type FontHandle } from "./fonts";
@@ -50,6 +52,11 @@ export const enum MenuState {
   ChangeKeys3,
   ChangeKeys4,
   NetOptions,
+  MultiplayMode,
+  Online,
+  HostSetup,
+  Join,
+  Lobby,
   Amount,
 }
 
@@ -102,6 +109,18 @@ export interface MenuHost {
   saveOptions(): void;
   optionsReset(): void;
   requestQuit(): void;
+  /** Netplay: create a room from the current options and enter the lobby. */
+  startHosting(): void;
+  /** Netplay: join the room with this code, using player 1's configured name. */
+  joinGame(code: string): void;
+  /** Netplay: leave the current room and disconnect. */
+  leaveNet(): void;
+  /** Netplay: ask the server to start the match now (host, full lobby). */
+  startMatch(): void;
+  /** Netplay: the current room info, or null when not connected. */
+  netLobby(): RoomInfo | null;
+  netStatus(): NetStatus;
+  netSeat(): number;
 }
 
 function bool(
@@ -1188,6 +1207,221 @@ export class SplitSelectItem extends MenuItem {
   }
 }
 
+/** Frag limit for online deathmatch (`OptionsData.dmFragLimit`). */
+export class FragLimitItem extends MenuItem {
+  constructor(parent: MenuBase, paramStr: string) {
+    super(parent, null);
+    this.paramStr = paramStr;
+    this.updateText();
+  }
+
+  private updateText(): void {
+    const data = this.parent.host.options().data;
+    data.dmFragLimit = Math.min(Math.max(data.dmFragLimit, KFRAG_LIMIT_MIN), KFRAG_LIMIT_MAX);
+    this.setText(`${this.paramStr}: ${data.dmFragLimit}`);
+  }
+
+  override handleKeyPress(key: KeyPress): MenuAction {
+    const data = this.parent.host.options().data;
+    if (this.leftKey(key)) {
+      data.dmFragLimit -= 5;
+      if (data.dmFragLimit < KFRAG_LIMIT_MIN) data.dmFragLimit = KFRAG_LIMIT_MAX;
+      this.updateText();
+      return MenuAction.Processed;
+    }
+    if (this.rightKey(key) || this.actionKey(key)) {
+      data.dmFragLimit += 5;
+      if (data.dmFragLimit > KFRAG_LIMIT_MAX) data.dmFragLimit = KFRAG_LIMIT_MIN;
+      this.updateText();
+      return MenuAction.Processed;
+    }
+    return MenuAction.NotProcessed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    this.updateText();
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
+/** Uppercase A–Z room-code entry. */
+export class NetCodeItem extends MenuItem {
+  private inputMode = 0;
+
+  constructor(
+    parent: MenuBase,
+    title: string,
+    private readonly get: () => string,
+    private readonly set: (v: string) => void,
+    private readonly maxLen: number,
+  ) {
+    super(parent, title);
+  }
+
+  override handleKeyPress(key: KeyPress): MenuAction {
+    if (!this.inputMode) {
+      if (this.actionKey(key)) {
+        this.inputMode = 1;
+        return MenuAction.Processed;
+      }
+      return MenuAction.NotProcessed;
+    }
+    if (key.sym === SDLK.RETURN || key.sym === SDLK.ESCAPE) {
+      this.inputMode = 0;
+      return MenuAction.Processed;
+    }
+    if (key.sym === SDLK.BACKSPACE) {
+      const value = this.get();
+      if (value.length > 0) {
+        this.set(value.slice(0, -1));
+        return MenuAction.Processed;
+      }
+      return MenuAction.NotProcessed;
+    }
+    if (this.get().length >= this.maxLen || key.unicode === 0) return MenuAction.NotProcessed;
+    const ch = String.fromCharCode(key.unicode).toUpperCase();
+    if (ch < "A" || ch > "Z") return MenuAction.NotProcessed;
+    this.set(this.get() + ch);
+    return MenuAction.Processed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    const xadd = this.inputMode ? 0 : this.menuXDisplace(active);
+    const yadd = this.inputMode ? 0 : this.menuYDisplace(active);
+    let value = this.get();
+    if (this.inputMode && this.displaceCounter % 100 > 50) value += "|";
+    if (this.text === null) return { left: 0, top: 0, right: 0, bottom: 0 };
+    const light = active || this.notActiveItem;
+    const handle = fonts.get(light ? GameFont.BigMenuFont : GameFont.BigMenuFontDark);
+    const dx = light ? xadd : 0;
+    const dy = light ? yadd : 0;
+    const first = this.write(
+      handle,
+      buffer,
+      x - PARAM_SEPARATION + dx,
+      y + dy,
+      this.text,
+      VAlign.Below,
+      HAlign.ToLeft,
+    );
+    const second = this.write(
+      handle,
+      buffer,
+      x + PARAM_SEPARATION + dx,
+      y + dy,
+      value,
+      VAlign.Below,
+      HAlign.ToRight,
+    );
+    return union(first, second);
+  }
+}
+
+/** Starts hosting from the current options; the app enters the lobby on confirm. */
+export class StartHostingItem extends MenuItem {
+  override handleKeyPress(key: KeyPress): MenuAction {
+    if (this.actionKey(key)) {
+      this.parent.host.startHosting();
+      return MenuAction.Processed;
+    }
+    return MenuAction.NotProcessed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
+/** Joins the room whose code `getCode()` returns. */
+export class StartJoinItem extends MenuItem {
+  constructor(
+    parent: MenuBase,
+    text: string,
+    private readonly getCode: () => string,
+  ) {
+    super(parent, text);
+  }
+
+  override handleKeyPress(key: KeyPress): MenuAction {
+    if (this.actionKey(key)) {
+      this.parent.host.joinGame(this.getCode());
+      return MenuAction.Processed;
+    }
+    return MenuAction.NotProcessed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
+/** Asks the server to start the match now (used for a rematch from the lobby). */
+export class StartMatchItem extends MenuItem {
+  override handleKeyPress(key: KeyPress): MenuAction {
+    if (this.actionKey(key)) {
+      this.parent.host.startMatch();
+      return MenuAction.Processed;
+    }
+    return MenuAction.NotProcessed;
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
+/** Static lobby line (code / roster / status); never selectable. */
+export class LabelItem extends MenuItem {
+  constructor(parent: MenuBase, text = "") {
+    super(parent, text);
+    this.notActiveItem = true;
+  }
+
+  setLabel(text: string): void {
+    this.setText(text);
+  }
+
+  override draw(
+    fonts: SystemFonts,
+    buffer: Framebuffer,
+    x: number,
+    y: number,
+    active: number,
+  ): Rect {
+    return this.drawText(fonts, buffer, x, y, active);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Menu trees (`Menu.cpp`)
 // ---------------------------------------------------------------------------
@@ -1199,7 +1433,7 @@ export class MainMenu extends MenuBase {
     this.items.push(new TitleItem(this, "main menu"));
     this.items.push(new TitleItem(this, ""));
     this.items.push(new StartMenuItem(this, "single game", MenuState.EpisodeSelect));
-    this.items.push(new StartMenuItem(this, "start multiplayer game", MenuState.Multiplay));
+    this.items.push(new StartMenuItem(this, "start multiplayer game", MenuState.MultiplayMode));
     this.items.push(new StartMenuItem(this, "options", MenuState.Options));
     this.items.push(new TitleItem(this, ""));
     this.items.push(new ExitItem(this, "exit"));
@@ -1433,11 +1667,153 @@ export class MultiplayMenu extends MenuBase {
   }
 
   override prevMenu(): MenuState {
+    return MenuState.MultiplayMode;
+  }
+}
+
+/** The new screen behind "start multiplayer game": online or split-screen. */
+export class MultiplayModeMenu extends MenuBase {
+  constructor(host: MenuHost) {
+    super(host);
+    this.items.push(new TitleItem(this, "multiplayer"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartMenuItem(this, "online multiplayer", MenuState.Online));
+    this.items.push(new StartMenuItem(this, "split-screen multiplayer", MenuState.Multiplay));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new ExitItem(this, "previous menu"));
+  }
+
+  override prevMenu(): MenuState {
     return MenuState.Main;
   }
 }
 
-/** `CGameMenuEpisodeSelect` — the scrolling episode chooser. */
+/** Host or join an online game. */
+export class OnlineMenu extends MenuBase {
+  constructor(host: MenuHost) {
+    super(host);
+    this.items.push(new TitleItem(this, "online multiplayer"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartMenuItem(this, "host game", MenuState.HostSetup));
+    this.items.push(new StartMenuItem(this, "join game", MenuState.Join));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new ExitItem(this, "previous menu"));
+  }
+
+  override prevMenu(): MenuState {
+    return MenuState.MultiplayMode;
+  }
+}
+
+/** Host settings; "start hosting" creates the room. */
+export class HostSetupMenu extends MenuBase {
+  constructor(host: MenuHost) {
+    super(host);
+    const levelSelect = new LevelSelectItem(this, "Level");
+    const episodeSelect = new EpisodeSelectOptionItem(this, "Episode", levelSelect);
+    const gameMode = new GameModeSelectItem(this, "Game mode", levelSelect, episodeSelect);
+    this.items.push(new TitleItem(this, "host game"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(gameMode);
+    this.items.push(episodeSelect);
+    this.items.push(levelSelect);
+    this.items.push(new SplitSelectItem(this, "Players"));
+    this.items.push(new FragLimitItem(this, "Frag limit (deathmatch)"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartHostingItem(this, "start hosting"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new ExitItem(this, "previous menu"));
+  }
+
+  override prevMenu(): MenuState {
+    return MenuState.Online;
+  }
+}
+
+/** Enter a room code and join. */
+export class JoinMenu extends MenuBase {
+  private code = "";
+
+  constructor(host: MenuHost) {
+    super(host);
+    this.items.push(new TitleItem(this, "join game"));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(
+      new NetCodeItem(
+        this,
+        "code: ",
+        () => this.code,
+        (v) => (this.code = v),
+        5,
+      ),
+    );
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartJoinItem(this, "join", () => this.code));
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new ExitItem(this, "previous menu"));
+  }
+
+  override prevMenu(): MenuState {
+    return MenuState.Online;
+  }
+}
+
+/** The waiting room: join code, roster and player count, refreshed each frame. */
+export class LobbyMenu extends MenuBase {
+  private readonly codeItem: LabelItem;
+  private readonly roster: LabelItem[] = [];
+  private readonly statusItem: LabelItem;
+
+  constructor(host: MenuHost) {
+    super(host);
+    this.items.push(new TitleItem(this, "lobby"));
+    this.items.push(new TitleItem(this, ""));
+    this.codeItem = new LabelItem(this, "code: …");
+    this.items.push(this.codeItem);
+    this.items.push(new TitleItem(this, ""));
+    for (let i = 0; i < KMaxLocalPlayers; i++) {
+      const row = new LabelItem(this, "");
+      this.roster.push(row);
+      this.items.push(row);
+    }
+    this.statusItem = new LabelItem(this, "");
+    this.items.push(this.statusItem);
+    this.items.push(new TitleItem(this, ""));
+    this.items.push(new StartMatchItem(this, "start game"));
+    this.items.push(new ExitItem(this, "leave lobby"));
+  }
+
+  override prevMenu(): MenuState {
+    return MenuState.Online;
+  }
+
+  override draw(): void {
+    const lobby = this.host.netLobby();
+    if (lobby) {
+      const mySeat = this.host.netSeat();
+      this.codeItem.setLabel(`code: ${lobby.code}`);
+      for (let i = 0; i < this.roster.length; i++) {
+        const player = lobby.players.find((p) => p.seat === i);
+        if (!player) {
+          this.roster[i].setLabel("");
+          continue;
+        }
+        const host = lobby.hostSeat === i ? " (host)" : "";
+        const me = mySeat === i ? " <" : "";
+        this.roster[i].setLabel(`${player.name}${host}${me}`);
+      }
+      const connected = lobby.players.filter((p) => p.connected).length;
+      this.statusItem.setLabel(
+        connected >= lobby.settings.players
+          ? "roster full - start game when ready"
+          : `waiting for players ${connected}/${lobby.settings.players}…`,
+      );
+    } else {
+      this.statusItem.setLabel(`connecting… (${this.host.netStatus()})`);
+    }
+    super.draw();
+  }
+}
 export class EpisodeSelectMenu extends MenuBase {
   private subScroll = 0;
   private subItem = 0;
@@ -1628,7 +2004,7 @@ export class NetOptionsMenu extends MenuBase {
 export class MenuContainer {
   private readonly menus: MenuBase[] = [];
   private state = MenuState.Main;
-  private skipDraw = false;
+  private suspended = false;
 
   constructor(private readonly host: MenuHost) {
     this.menus[MenuState.AudioOptions] = new AudioOptionsMenu(host);
@@ -1647,7 +2023,16 @@ export class MenuContainer {
     this.menus[MenuState.ChangeKeys3] = new ChangeKeysMenu(host, 3);
     this.menus[MenuState.ChangeKeys4] = new ChangeKeysMenu(host, 4);
     this.menus[MenuState.NetOptions] = new NetOptionsMenu(host);
+    this.menus[MenuState.MultiplayMode] = new MultiplayModeMenu(host);
+    this.menus[MenuState.Online] = new OnlineMenu(host);
+    this.menus[MenuState.HostSetup] = new HostSetupMenu(host);
+    this.menus[MenuState.Join] = new JoinMenu(host);
+    this.menus[MenuState.Lobby] = new LobbyMenu(host);
     this.state = MenuState.Main;
+  }
+
+  currentState(): MenuState {
+    return this.state;
   }
 
   changeState(state: MenuState): void {
@@ -1661,21 +2046,29 @@ export class MenuContainer {
 
   /** Returns true when the key was consumed (used for the click sound). */
   runFrame(key: KeyPress | null): boolean {
-    this.skipDraw = false;
+    // `CGameMenuItemExecSingleGame` sets `iSkipDraw` and the original then
+    // starts the fade before the menu runs again. Here the level load is
+    // async, so the freeze must hold until the state actually changes.
+    if (this.suspended) return false;
     return this.menus[this.state].runMenu(key);
   }
 
   draw(): void {
-    if (this.skipDraw) return;
+    if (this.suspended) return;
     this.menus[this.state].draw();
   }
 
   enterState(): void {
+    this.suspended = false;
     this.menus[this.state].activateMenu();
   }
 
   skipDrawOnce(): void {
-    this.skipDraw = true;
+    this.suspended = true;
+  }
+
+  isSuspended(): boolean {
+    return this.suspended;
   }
 
   doFullRedraw(): void {

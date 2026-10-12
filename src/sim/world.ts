@@ -25,7 +25,7 @@ import {
   vectorAngle,
   vectorLength,
 } from "../core/math";
-import { GlibcRandom } from "../core/rng";
+import { GlibcRandom, type RngState } from "../core/rng";
 import { KCharacterSpriteSize, KBlockSpriteSize } from "../data/constants";
 import { type Level, levelData, reachable } from "../data/level";
 import type { Rect } from "../render/rect";
@@ -183,6 +183,72 @@ export class SimPlayer {
   }
 }
 
+/** The loadout a game starts with (`CGameSystem::Init` + `CDynGameData::SetupPlayers`). */
+export function makeStartPlayer(): SimPlayer {
+  const p = new SimPlayer();
+  p.weapons[WeaponId.Fist] = 1;
+  p.bullets[BulletId.Fist] = 1;
+  p.curWeapon = WeaponId.Fist;
+  p.cash = 500;
+  return p;
+}
+
+/**
+ * A rollback snapshot of everything in {@link SimWorld} that the simulation can
+ * mutate (netplay prediction, docs/multiplayer/09). Level data, config and the
+ * statistics sink are invariant and deliberately excluded.
+ */
+export interface WorldState {
+  players: SimPlayer[];
+  bullets: SimBullet[];
+  effects: SimEffect[];
+  newEffects: SimEffect[];
+  bodyparts: SimBodyPart[];
+  enemies: SimEnemy[];
+  crates: SimCrate[];
+  deadEnemies: Array<{ x: number; y: number }>;
+  mouseOwner: number;
+  mouseSensitivity: number;
+  mouseRightPressed: boolean[];
+  coopFrags: boolean;
+  networkNone: boolean;
+  steamAnimationCount: number;
+  frags: boolean;
+  crateRespawn: boolean;
+  dmCrates: boolean;
+  enemiesEnabled: boolean;
+  randomPlacePlayers: boolean;
+  dmSpeed: number;
+  dmTargetSystem: boolean;
+  enemyUidCounter: number;
+  rng: RngState;
+}
+
+/** Shallow-clones a data-class instance, copying its array fields. */
+function cloneRecord<T extends object>(o: T): T {
+  const copy = Object.create(Object.getPrototypeOf(o)) as T;
+  Object.assign(copy, o);
+  for (const key of Object.keys(o)) {
+    const value = (o as Record<string, unknown>)[key];
+    if (Array.isArray(value)) (copy as Record<string, unknown>)[key] = value.slice();
+  }
+  return copy;
+}
+
+/** Copies `src`'s fields into the existing `target` object (keeps identity). */
+function copyRecordInto<T extends object>(target: T, src: T): void {
+  for (const key of Object.keys(src)) {
+    const value = (src as Record<string, unknown>)[key];
+    (target as Record<string, unknown>)[key] = Array.isArray(value) ? value.slice() : value;
+  }
+}
+
+/** Replaces `target`'s contents with clones of `src` (keeps the array itself). */
+function replaceAll<T extends object>(target: T[], src: readonly T[]): void {
+  target.length = 0;
+  for (const item of src) target.push(cloneRecord(item));
+}
+
 export class SimWorld {
   readonly level: Level;
   readonly rng: GlibcRandom;
@@ -195,8 +261,15 @@ export class SimWorld {
   crates: SimCrate[] = [];
   deadEnemies: Array<{ x: number; y: number }> = [];
   mouseOwner = -1;
+  /**
+   * Netplay extension: when set, every seat consumes its own mouse input
+   * instead of the single shared `mouseOwner`. Off for single-player and local
+   * split-screen (parity), on for online matches (docs/multiplayer/01).
+   */
+  perSeatMouse = false;
   mouseSensitivity = 0.5;
-  mouseRightPressed = false;
+  /** Per-seat right-button edge state (the original has a single mouse). */
+  mouseRightPressed: boolean[] = [];
   coopFrags = false;
   networkNone = true;
   steamAnimationCount = 0;
@@ -239,6 +312,68 @@ export class SimWorld {
   constructor(level: Level, seed: number) {
     this.level = level;
     this.rng = new GlibcRandom(seed);
+  }
+
+  /** Snapshot the mutable simulation state (rollback netcode). */
+  saveState(): WorldState {
+    return {
+      players: this.players.map(cloneRecord),
+      bullets: this.bullets.map(cloneRecord),
+      effects: this.effects.map(cloneRecord),
+      newEffects: this.newEffects.map(cloneRecord),
+      bodyparts: this.bodyparts.map(cloneRecord),
+      enemies: this.enemies.map(cloneRecord),
+      crates: this.crates.map(cloneRecord),
+      deadEnemies: this.deadEnemies.map((d) => ({ x: d.x, y: d.y })),
+      mouseOwner: this.mouseOwner,
+      mouseSensitivity: this.mouseSensitivity,
+      mouseRightPressed: this.mouseRightPressed.slice(),
+      coopFrags: this.coopFrags,
+      networkNone: this.networkNone,
+      steamAnimationCount: this.steamAnimationCount,
+      frags: this.frags,
+      crateRespawn: this.crateRespawn,
+      dmCrates: this.dmCrates,
+      enemiesEnabled: this.enemiesEnabled,
+      randomPlacePlayers: this.randomPlacePlayers,
+      dmSpeed: this.dmSpeed,
+      dmTargetSystem: this.dmTargetSystem,
+      enemyUidCounter: this.enemyUidCounter,
+      rng: this.rng.saveState(),
+    };
+  }
+
+  /**
+   * Restore a {@link saveState} snapshot. Player objects are restored in place
+   * so the session's `players`/`player` references keep working.
+   */
+  loadState(s: WorldState): void {
+    for (let i = 0; i < this.players.length && i < s.players.length; i++) {
+      copyRecordInto(this.players[i], s.players[i]);
+    }
+    replaceAll(this.bullets, s.bullets);
+    replaceAll(this.effects, s.effects);
+    replaceAll(this.newEffects, s.newEffects);
+    replaceAll(this.bodyparts, s.bodyparts);
+    replaceAll(this.enemies, s.enemies);
+    replaceAll(this.crates, s.crates);
+    this.deadEnemies.length = 0;
+    for (const d of s.deadEnemies) this.deadEnemies.push({ x: d.x, y: d.y });
+    this.mouseOwner = s.mouseOwner;
+    this.mouseSensitivity = s.mouseSensitivity;
+    this.mouseRightPressed = s.mouseRightPressed.slice();
+    this.coopFrags = s.coopFrags;
+    this.networkNone = s.networkNone;
+    this.steamAnimationCount = s.steamAnimationCount;
+    this.frags = s.frags;
+    this.crateRespawn = s.crateRespawn;
+    this.dmCrates = s.dmCrates;
+    this.enemiesEnabled = s.enemiesEnabled;
+    this.randomPlacePlayers = s.randomPlacePlayers;
+    this.dmSpeed = s.dmSpeed;
+    this.dmTargetSystem = s.dmTargetSystem;
+    this.enemyUidCounter = s.enemyUidCounter;
+    this.rng.loadState(s.rng);
   }
 
   /** `CLevelRuntimeData::NewEffect`. */
@@ -976,7 +1111,7 @@ export class SimWorld {
     p.noDamage = false;
 
     if (
-      this.mouseOwner !== index &&
+      !this.mouseControls(index) &&
       !(input.keys & Key.Left) &&
       !(input.keys & Key.Right) &&
       p.targetAngle === Math.trunc(p.angle)
@@ -1007,7 +1142,7 @@ export class SimWorld {
       walkChk = 1;
     }
 
-    if (this.mouseOwner === index) fAngle = Math.trunc(p.angle);
+    if (this.mouseControls(index)) fAngle = Math.trunc(p.angle);
     else fAngle = Math.trunc(f32(p.spriteAngle() * 4.5));
 
     if (forward === Direction.Up) {
@@ -1036,7 +1171,7 @@ export class SimWorld {
 
     if (
       input.keys & Key.Shoot ||
-      (this.mouseOwner === index && input.mouseButtons & MouseButton.Left)
+      (this.mouseControls(index) && input.mouseButtons & MouseButton.Left)
     ) {
       p.shootCount++;
       if (WeaponTypes[p.curWeapon].bulletType !== BulletId.Fist)
@@ -1070,15 +1205,15 @@ export class SimWorld {
       p.weaponInHand = false;
     }
 
-    if (!(input.mouseButtons & MouseButton.Right)) this.mouseRightPressed = false;
+    if (!(input.mouseButtons & MouseButton.Right)) this.mouseRightPressed[index] = false;
     if (
       input.keys & Key.Shift ||
-      (this.mouseOwner === index &&
+      (this.mouseControls(index) &&
         input.mouseButtons & MouseButton.Right &&
-        !this.mouseRightPressed)
+        !this.mouseRightPressed[index])
     ) {
       this.changeWeapon(p, false);
-      if (this.mouseOwner === index) this.mouseRightPressed = true;
+      if (this.mouseControls(index)) this.mouseRightPressed[index] = true;
     }
   }
 
@@ -1987,6 +2122,26 @@ export class SimWorld {
   }
 
   /**
+   * Whether seat `index`'s mouse drives its player's aim/shoot right-click.
+   * Offline that is only the single `mouseOwner`; online (`perSeatMouse`) every
+   * seat owns its own mouse — and crucially the answer must NOT depend on which
+   * client is running, or the worlds diverge.
+   */
+  private mouseControls(index: number): boolean {
+    return this.perSeatMouse || this.mouseOwner === index;
+  }
+
+  /** `CPlayer` mouse rotation + wheel weapon switching (both mouse paths). */
+  private applyMouse(p: SimPlayer, mouse: SimInput): void {
+    let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
+    if (temp < -15) temp = -15;
+    if (temp > 15) temp = 15;
+    this.rotate(p, temp);
+    if (mouse.mouseButtons & MouseButton.WheelDown) this.changeWeapon(p, false);
+    if (mouse.mouseButtons & MouseButton.WheelUp) this.changeWeapon(p, true);
+  }
+
+  /**
    * One 100 Hz tick — mirrors the inner loop of `CGameSubStateOngoing::RunFrame`.
    * `inputs[i]` is seat `i`'s keyboard (and, for `mouseOwner`, mouse) state.
    */
@@ -1997,16 +2152,10 @@ export class SimWorld {
       if (p.local && !p.dead) this.playerCheckKeys(i, p, inputs[i] ?? EMPTY_INPUT);
     }
 
-    if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
-      const mouse = inputs[this.mouseOwner] ?? EMPTY_INPUT;
-      let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
-      if (temp < -15) temp = -15;
-      if (temp > 15) temp = 15;
-      this.rotate(this.players[this.mouseOwner], temp);
-      if (mouse.mouseButtons & MouseButton.WheelDown)
-        this.changeWeapon(this.players[this.mouseOwner], false);
-      if (mouse.mouseButtons & MouseButton.WheelUp)
-        this.changeWeapon(this.players[this.mouseOwner], true);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      if (p.dead || !this.mouseControls(i)) continue;
+      this.applyMouse(p, inputs[i] ?? EMPTY_INPUT);
     }
 
     // 2. LevelRuntimeData::PerFrameCalc

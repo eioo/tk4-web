@@ -9,6 +9,7 @@
     "build": "bunx --bun tsc --noEmit && bunx --bun vite build",
     "start": "bun run build && bun run tools/serve.ts",
     "serve": "bun run tools/serve.ts",
+    "net": "bun run tools/net-server.ts",
     "preview": "bunx --bun vite preview",
     "typecheck": "bunx --bun tsc --noEmit",
     "lint": "oxlint",

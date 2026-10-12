@@ -24,8 +24,7 @@ import type { DrawSprites, GameDrawer } from "../render/drawer";
 import type { Framebuffer } from "../render/fb";
 import type { Rect } from "../render/rect";
 import { blackRects, playerDrawRects } from "../render/viewport";
-import type { GameStatistics } from "../sim/statistics";
-import { BulletId, WeaponId } from "../sim/types";
+import type { GameStatistics, StatisticsState } from "../sim/statistics";
 import {
   KPlayerColor,
   KPlayerMaxEnergy,
@@ -33,11 +32,21 @@ import {
   SimPlayer,
   SimWorld,
   type SimInput,
+  type WorldState,
 } from "../sim/world";
 import type { GameMode } from "./game-mode";
 
 /** `KTimerFreq` — sim ticks per second. */
 const KTimerFreq = 100;
+
+/** Everything a rollback snapshot must restore for a {@link GameSession}. */
+export interface SessionState {
+  world: WorldState;
+  timerCounter: number;
+  completeTime: number;
+  nextLevel: number;
+  stats: StatisticsState | null;
+}
 /** `CDynGameData::KTooManyTries`. */
 const KTooManyTries = 100000;
 
@@ -62,14 +71,7 @@ export interface SessionHud {
 }
 
 /** The loadout a game starts with (`CGameSystem::Init` + `CDynGameData::SetupPlayers`). */
-export function makeStartPlayer(): SimPlayer {
-  const p = new SimPlayer();
-  p.weapons[WeaponId.Fist] = 1;
-  p.bullets[BulletId.Fist] = 1;
-  p.curWeapon = WeaponId.Fist;
-  p.cash = 500;
-  return p;
-}
+export { makeStartPlayer } from "../sim/world";
 
 /** `CPlayer::SetColorByIndex`. */
 function setColorByIndex(p: SimPlayer, index: number): void {
@@ -150,6 +152,8 @@ export class GameSession {
   readonly players: SimPlayer[];
   readonly drawRects: Rect[];
   readonly blackRects: Rect[];
+  /** Seats to render (all in local play; one seat online). */
+  readonly viewSeats: number[];
   readonly renderRng: GlibcRandom;
   timerCounter = 0;
   completeTime = 0;
@@ -171,6 +175,8 @@ export class GameSession {
     seed: number,
     players: SimPlayer[],
     stats: GameStatistics | null,
+    /** Netplay: the seat this client renders, or -1 for local play. */
+    readonly onlineSeat = -1,
   ) {
     this.world = new SimWorld(level, seed);
     this.world.stats = stats;
@@ -180,8 +186,21 @@ export class GameSession {
 
     this.players = players;
     this.player = players[0];
-    this.drawRects = playerDrawRects(fb.width, fb.height, players.length);
-    this.blackRects = blackRects(fb.width, fb.height, players.length);
+
+    // Online: every client assigns the identical full-screen rect to every seat
+    // (so the sim cannot diverge on `drawRect`) and renders only its own view.
+    // Local play keeps the split-screen viewport tables.
+    if (onlineSeat >= 0) {
+      const full = fb.rect();
+      this.drawRects = players.map(() => ({ ...full }));
+      this.blackRects = [];
+      this.viewSeats = [onlineSeat];
+      this.world.perSeatMouse = true;
+    } else {
+      this.drawRects = playerDrawRects(fb.width, fb.height, players.length);
+      this.blackRects = blackRects(fb.width, fb.height, players.length);
+      this.viewSeats = players.map((_, i) => i);
+    }
 
     // Mode + option flags (`CDynGameData::SetLevels` reads the same values).
     const world = this.world;
@@ -196,6 +215,9 @@ export class GameSession {
     world.suicideTexts = ingame.suicideTexts;
     world.mouseOwner = players.length > 0 ? 0 : -1;
     world.mouseSensitivity = 0.5;
+    // Online the client pre-scales `mouseXRel` by its own sensitivity, so every
+    // client must apply the identical angle delta (sensitivity 1.0).
+    if (onlineSeat >= 0) world.mouseSensitivity = 1.0;
     world.textLength = (text: string) => fontLength(this.hud.font, text);
     world.players = players;
 
@@ -238,6 +260,34 @@ export class GameSession {
     }
     this.hud.nextLevel = this.nextLevel;
     this.hud.completeTime = this.completeTime;
+  }
+
+  /** Snapshot for rollback netplay (`src/net/lockstep.ts`). */
+  saveState(): SessionState {
+    return {
+      world: this.world.saveState(),
+      timerCounter: this.timerCounter,
+      completeTime: this.completeTime,
+      nextLevel: this.nextLevel,
+      stats: this.world.stats?.saveState() ?? null,
+    };
+  }
+
+  /** Restore a {@link saveState} snapshot. */
+  loadState(state: SessionState): void {
+    this.world.loadState(state.world);
+    if (state.stats && this.world.stats) this.world.stats.loadState(state.stats);
+    this.timerCounter = state.timerCounter;
+    this.completeTime = state.completeTime;
+    this.nextLevel = state.nextLevel;
+    this.hud.nextLevel = state.nextLevel;
+    this.hud.completeTime = state.completeTime;
+  }
+
+  /** Drop per-tick output so a rollback replay does not re-emit it. */
+  discardOutput(): void {
+    this.world.messages.length = 0;
+    this.world.sounds.length = 0;
   }
 
   /** One scene per view; the arrays/RNG are shared, only the camera differs. */
@@ -295,11 +345,12 @@ export class GameSession {
     // but the original is explicit — CDynGameData::GraphicsModeChanged).
     for (const r of this.blackRects) this.fb.fillRect(r, 0);
 
-    for (let i = 0; i < this.players.length; i++) {
-      const p = this.players[i];
+    for (let i = 0; i < this.viewSeats.length; i++) {
+      const seat = this.viewSeats[i];
+      const p = this.players[seat];
       const view = {
         ...base,
-        drawRect: this.drawRects[i],
+        drawRect: this.drawRects[seat],
         screenPos: { x: p.screenX, y: p.screenY },
         playerLocation: { x: p.x, y: p.y },
       };

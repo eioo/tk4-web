@@ -54,6 +54,21 @@ export interface PlayerStats {
   readonly levels: PlayerLevelStats[];
 }
 
+/** Snapshot of the mutable accounting, for rollback netplay. */
+export interface StatisticsState {
+  latest: number;
+  recording: number;
+  players: Array<{
+    levelOfDeath: number;
+    levels: Array<{
+      enemyKills: number[];
+      playerKills: Array<[number, number]>;
+      roundsShot: number;
+      roundsHit: number;
+    }>;
+  }>;
+}
+
 export class GameStatistics {
   readonly players: PlayerStats[] = [];
   /** `iLatest` — the level whose statistics are being displayed. */
@@ -115,6 +130,65 @@ export class GameStatistics {
   totalPlayerKills(player: number): number {
     let total = 0;
     for (const [victim, amount] of this.latestLevelStats(player).playerKills)
+      total += victim === player ? -amount : amount;
+    return total;
+  }
+
+  /** Snapshot the mutable accounting (rollback netplay). */
+  saveState(): StatisticsState {
+    return {
+      latest: this.latest,
+      recording: this.recording,
+      players: this.players.map((p) => ({
+        levelOfDeath: p.levelOfDeath,
+        levels: p.levels.map((l) => ({
+          enemyKills: l.enemyKills.slice(),
+          playerKills: [...l.playerKills],
+          roundsShot: l.roundsShot,
+          roundsHit: l.roundsHit,
+        })),
+      })),
+    };
+  }
+
+  /** Restore a {@link saveState} snapshot, keeping array/object identity. */
+  loadState(s: StatisticsState): void {
+    this.latest = s.latest;
+    this.recording = s.recording;
+    for (let i = 0; i < this.players.length && i < s.players.length; i++) {
+      const player = this.players[i];
+      const src = s.players[i];
+      player.levelOfDeath = src.levelOfDeath;
+      player.levels.length = src.levels.length;
+      for (let l = 0; l < src.levels.length; l++) {
+        let level = player.levels[l];
+        if (!level) {
+          level = makeLevelStats();
+          player.levels[l] = level;
+        }
+        const levelSrc = src.levels[l];
+        level.enemyKills.length = levelSrc.enemyKills.length;
+        for (let k = 0; k < levelSrc.enemyKills.length; k++) {
+          level.enemyKills[k] = levelSrc.enemyKills[k];
+        }
+        level.playerKills.clear();
+        for (const [victim, amount] of levelSrc.playerKills) {
+          level.playerKills.set(victim, amount);
+        }
+        level.roundsShot = levelSrc.roundsShot;
+        level.roundsHit = levelSrc.roundsHit;
+      }
+    }
+  }
+
+  /**
+   * Frags for the level currently being recorded (used for the online frag
+   * limit while a deathmatch is still running, before `latest` is set).
+   */
+  currentPlayerKills(player: number): number {
+    if (player < 0 || player >= this.players.length) return 0;
+    let total = 0;
+    for (const [victim, amount] of this.levelStats(player, this.recording).playerKills)
       total += victim === player ? -amount : amount;
     return total;
   }

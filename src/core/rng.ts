@@ -18,6 +18,13 @@ const DEG = 31;
 const SEP = 3;
 const PARK_MILLER_M = 2147483647;
 
+/** Full generator state, for snapshot/rollback (netplay prediction). */
+export interface RngState {
+  readonly state: Int32Array;
+  readonly fptr: number;
+  readonly rptr: number;
+}
+
 export class GlibcRandom {
   private readonly state = new Int32Array(DEG);
   private fptr = SEP;
@@ -51,6 +58,18 @@ export class GlibcRandom {
   /** libc `rand()`: a non-negative 31-bit integer. */
   rand(): number {
     return this.next();
+  }
+
+  /** Snapshot the generator (rollback netcode). */
+  saveState(): RngState {
+    return { state: this.state.slice(), fptr: this.fptr, rptr: this.rptr };
+  }
+
+  /** Restore a {@link saveState} snapshot. */
+  loadState(s: RngState): void {
+    this.state.set(s.state);
+    this.fptr = s.fptr;
+    this.rptr = s.rptr;
   }
 
   private next(): number {

@@ -6,6 +6,7 @@
  * malformed entry leaves the defaults from `COptionsData::Reset` untouched.
  */
 
+import { KFRAG_LIMIT_MAX, KFRAG_LIMIT_MIN } from "../net/protocol";
 import {
   KEffectVolumeMax,
   KEffectVolumeMin,
@@ -64,6 +65,7 @@ export function serializeOptions(data: OptionsData): string {
     multiPlayEpisode: data.multiPlayEpisode,
     dmSpeed: data.dmSpeed,
     dmTargetSystem: data.dmTargetSystem,
+    dmFragLimit: data.dmFragLimit,
     stereo: data.stereo,
     fullScreen: data.fullScreen,
     mouseSensitivity: data.mouseSensitivity,
@@ -112,6 +114,11 @@ export function applyOptions(data: OptionsData, raw: string | null): boolean {
     data.multiPlayEpisode = Math.max(0, Math.trunc(obj.multiPlayEpisode));
   if (isNum(obj.dmSpeed)) data.dmSpeed = clampNum(obj.dmSpeed, 0.5, 5.0);
   if (isBool(obj.dmTargetSystem)) data.dmTargetSystem = obj.dmTargetSystem;
+  if (isNum(obj.dmFragLimit))
+    data.dmFragLimit = Math.min(
+      Math.max(Math.trunc(obj.dmFragLimit), KFRAG_LIMIT_MIN),
+      KFRAG_LIMIT_MAX,
+    );
   if (isBool(obj.stereo)) data.stereo = obj.stereo;
   if (isBool(obj.fullScreen)) data.fullScreen = obj.fullScreen;
   if (isNum(obj.mouseSensitivity))

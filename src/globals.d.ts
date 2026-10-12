@@ -35,6 +35,11 @@ interface Window {
   tk4Msg?: (message: string) => void;
   /** Dev-only: start a single-player game on an episode. */
   tk4Start?: (episode?: number) => void;
+  /**
+   * Dev-only netplay control: `host`/`join`/`leave`/`state` (with an optional
+   * room code for `join`). Returns a short status or a state snapshot.
+   */
+  tk4Net?: (action: "host" | "join" | "leave" | "state", arg?: string) => unknown;
   /** Dev-only: the running `App` instance (for scripted verification). */
   tk4App?: unknown;
 }
