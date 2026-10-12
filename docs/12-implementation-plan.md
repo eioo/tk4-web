@@ -332,6 +332,13 @@ non-parity save.
 
 ✅ `bun run build` yields a deployable static site that runs the game end-to-end.
 
+**Status (partial):** the production host is in. `bun run start` builds (`tsc --noEmit` +
+`vite build`) and serves `dist/` with `tools/serve.ts` (a `Bun.serve` static server:
+custom-extension MIME types, immutable caching for hashed bundles, `index.html` fallback,
+`--port`/`--host`); `bun run serve` hosts an existing build. Verified: the built site
+boots and plays from the server. Still open for M10: loading screen, error surfacing,
+README, optional gamepad, optional non-parity save.
+
 ---
 
 ## Deferred — Multiplayer (split-screen + netplay)

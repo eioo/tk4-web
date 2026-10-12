@@ -185,7 +185,12 @@ Unit tests live in a `__test__/` directory next to the code they cover (e.g.
 
 - **Package manager + runtime + test runner**: `bun install`, `bun test`, `bun run`.
 - **Dev**: Vite via Bun (`bunx vite`) for HMR, **or** `bun build --watch` + `Bun.serve`.
-- **Prod**: `bun build` → static `dist/` (HTML + JS + `assets/`).
+- **Prod**: `bun run build` (`tsc --noEmit` + `vite build`) → static `dist/` (HTML + JS +
+  `assets/`); `bun run start` builds and then hosts it with `tools/serve.ts` (a small
+  `Bun.serve` static server — correct MIME types for the game's custom extensions,
+  immutable caching for Vite's hashed bundles, `index.html` fallback). `bun run serve`
+  hosts an existing `dist/` without rebuilding. Port/bind come from `--port`/`--host`
+  (or `PORT`/`HOST`), defaulting to `0.0.0.0:4173`.
 - **Build-time tools**: asset extraction scripts under Bun/TS (doc 11).
 
 ## Persistence
@@ -203,5 +208,10 @@ non-parity extra).
 
 ## Deployment
 
-Static site: `bun run build` → `dist/`, host anywhere. Watch for audio autoplay (require a
-user gesture) and canvas focus/keyboard capture.
+Static site: `bun run build` → `dist/`, host anywhere. To build **and** host locally with
+the bundled server, run `bun run start` (`--port`/`--host`, default `0.0.0.0:4173`); host
+only, without rebuilding, with `bun run serve`. Watch for audio autoplay (require a user
+gesture) and canvas focus/keyboard capture.
+
+Serve `dist/` behind HTTPS in real deployments so Pointer Lock and WebAudio behave
+normally. No server-side state is needed — the whole game is static files.

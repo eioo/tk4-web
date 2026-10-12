@@ -29,6 +29,8 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 | `bun run reference` | Build the standalone C++ oracles (`/tmp/{rotate,render,sim}_gen`) |
 | `bun run parity` | Build the oracles and diff every scenario trace + static frame (doc 13) |
 | `bun run perf` | Time the presentation-path CPU against its 60 fps budget (doc 13) |
+| `bun run serve` | Host an existing `dist/` build (`Bun.serve`; `--port`/`--host`, default `0.0.0.0:4173`) |
+| `bun run start` | `bun run build` then serve — the production command (doc 10) |
 
 ## Needed to build & run the ORIGINAL (the "reference oracle")
 
