@@ -47,6 +47,8 @@ export interface RoomManagerOptions {
 
 const KMAX_TICKS_PER_ADVANCE = 5;
 const KMAX_ROOMS = 500;
+/** Start ticking anyway if a client never reports its level loaded. */
+const KLEVEL_LOAD_TIMEOUT_MS = 15000;
 
 function cryptoRandom32(): number {
   const buf = new Uint32Array(1);
@@ -100,6 +102,10 @@ export class Room {
   private emptySince: number | null = null;
   private levelIndex = 0;
   private levelLast = false;
+  /** Ticking is gated until every connected seat reports its level loaded. */
+  private tickEnabled = false;
+  private levelStartedAt = 0;
+  private readonly loadedSeats = new Set<number>();
 
   constructor(
     private readonly manager: RoomManager,
@@ -213,6 +219,8 @@ export class Room {
       slot.peer = null;
       slot.pendingInput = null;
       this.broadcast({ t: "peerLeft", seat: slot.seat });
+      // A disconnected seat no longer blocks the load barrier.
+      this.checkLoaded();
     }
 
     // Host migration: keep the same host if it is still connected, else promote
@@ -280,6 +288,28 @@ export class Room {
     for (const s of this.seats) s.ready = false;
   }
 
+  /** A seat finished loading the level; start ticking once they all have. */
+  handleLoaded(peer: Peer): void {
+    if (this.phase !== "playing" || this.tickEnabled) return;
+    const slot = this.slotOf(peer);
+    if (!slot) return;
+    this.loadedSeats.add(slot.seat);
+    this.checkLoaded();
+  }
+
+  private checkLoaded(): void {
+    if (this.tickEnabled) return;
+    for (const s of this.seats) {
+      if (s.peer && !this.loadedSeats.has(s.seat)) return;
+    }
+    this.enableTicking();
+  }
+
+  private enableTicking(): void {
+    this.tickEnabled = true;
+    this.lastTickAt = this.manager.now();
+  }
+
   handleReady(peer: Peer, message: Extract<ClientMessage, { t: "ready" }>): void {
     if (this.phase !== "intermission") return;
     const slot = this.slotOf(peer);
@@ -306,6 +336,9 @@ export class Room {
     this.levelIndex = index;
     this.phase = "playing";
     this.tickCounter = 0;
+    this.tickEnabled = false;
+    this.loadedSeats.clear();
+    this.levelStartedAt = this.manager.now();
     this.lastTickAt = this.manager.now();
     for (const s of this.seats) {
       s.ready = false;
@@ -325,6 +358,8 @@ export class Room {
   private endMatch(reason: MatchEndReason): void {
     this.phase = "lobby";
     this.levelIndex = 0;
+    this.tickEnabled = false;
+    this.loadedSeats.clear();
     for (const s of this.seats) {
       s.ready = false;
       s.pendingInput = null;
@@ -345,6 +380,12 @@ export class Room {
     if (this.phase !== "playing") {
       this.lastTickAt = now;
       return;
+    }
+    if (!this.tickEnabled) {
+      // Wait for every connected seat to finish loading the level; the timeout
+      // is a safety valve so one stalled client cannot freeze the room.
+      if (now - this.levelStartedAt >= KLEVEL_LOAD_TIMEOUT_MS) this.enableTicking();
+      else return;
     }
     let ticks = 0;
     while (now - this.lastTickAt >= KTICK_MS && ticks < KMAX_TICKS_PER_ADVANCE) {
@@ -446,6 +487,9 @@ export class RoomManager {
         break;
       case "input":
         room.handleInput(peer, message);
+        break;
+      case "loaded":
+        room.handleLoaded(peer);
         break;
       case "levelEnd":
         room.handleLevelEnd(peer, message);

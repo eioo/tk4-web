@@ -52,28 +52,26 @@ it uses `options.data.keys[0]` and its own mouse, exactly like single-player.
 `gameState === OnGoing`:
 
 ```
-const bundle = net?.takeTick()          // null when nothing arrived
-if (!bundle) return                     // lockstep wait: do not advance the sim
-session.step(bundle.inputs)             // exactly one tick, identical on all clients
+net.sendInput(myInput)                  // sample + send each app tick
+let steps = 0
+while (steps < KMaxOnlineCatchUp && (bundle = net.takeTick())) {
+    session.step(bundle.inputs)         // apply bundles in order
+    steps++
+}
+if (steps === 0) return                 // lockstep wait: nothing arrived yet
 ```
 
 - Non-sim per-frame work (message board age, fades, FPS) still runs; only the sim
   step is gated.
-- A small capped buffer (e.g. 8 bundles) absorbs jitter; if it is empty we stall
-  (render the last frame) rather than invent input. Catch-up over >1 bundle per
-  loop tick is **not** done in v1 — the loop and server are both nominally
-  100 Hz, so drift stays bounded; if the buffer grows past the cap, drop the
-  oldest (the sim can't be fast-forwarded without inventing input, and dropping
-  keeps latency bounded at the cost of a small time skip, which only matters for
-  wall-clock alignment, not sim identity, because every client drops the same
-  ticks only if every client is told to — so v1 never drops; it stalls).
-- Because the server samples inputs at its own boundaries, the *set* of tick
-  bundles a client receives is exactly the set every other client receives
-  (server broadcast), so stepping them in order keeps worlds identical.
-
-> Determinism note: "stall vs catch-up" never changes sim content, because the
-> sim is driven purely by the input sequence, which is identical everywhere. It
-> only changes how fast real time advances locally.
+- Applying several bundles per app tick lets a briefly-stalled client (a slow
+  frame, the `core/loop.ts` catch-up cap, a tab hiccup) drain the backlog while
+  preserving the exact `(tick, inputs)` sequence, so worlds stay identical; a
+  cap (`KMaxOnlineCatchUp = 5`) bounds the work per frame.
+- A deep buffer (64 bundles) absorbs jitter; when it is empty the client stalls
+  (renders the last frame) rather than invent input.
+- Because the server broadcasts every bundle to every client, the *sequence* a
+  client steps is the same everywhere, so worlds stay identical regardless of
+  local timing.
 
 ## 5. Starting a level
 
@@ -92,9 +90,9 @@ On `c.levelStart`:
      `visibleSeats = [mySeat]`, `perSeatMouse = true`,
    - `stats` rebuilt/continued from the states (kills/frags).
 4. `shopSeed` seeds the shop RNG used by `updatePrices`.
-5. Enter `GameState.OnGoing` (no fade fork needed; the server barrier already
-   synchronises the start; a local fade-in is fine because it doesn't touch the
-   sim).
+5. Enter `GameState.OnGoing` (a local fade is fine: it doesn't touch the sim).
+   When the session is built, send `s.loaded` — the server holds the tick loop
+   until every seat is loaded, so all clients start at tick 0 together (§4).
 
 The existing `startGame`/`enterOngoing` path is generalised to accept an origin:
 `"single" | "splitscreen" | "online"`, plus (for online) the seed, states, seat

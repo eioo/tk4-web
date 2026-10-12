@@ -92,6 +92,7 @@ export type ClientMessage =
   | { t: "join"; v: number; name: string; code: string }
   | { t: "settings"; settings: NetSettings }
   | { t: "input"; keys: number; mouseXRel: number; mouseButtons: number }
+  | { t: "loaded" }
   | { t: "levelEnd"; last: boolean }
   | { t: "matchEnd"; reason: MatchEndReason }
   | { t: "ready"; state: NetPlayerState }
@@ -230,6 +231,8 @@ export function parseClientMessage(text: string): ClientMessage | null {
     case "levelEnd":
       if (typeof value.last !== "boolean") return null;
       return { t: "levelEnd", last: value.last };
+    case "loaded":
+      return { t: "loaded" };
     case "matchEnd":
       if (!isMatchEndReason(value.reason)) return null;
       return { t: "matchEnd", reason: value.reason };

@@ -21,8 +21,8 @@ import {
 
 export type NetStatus = "idle" | "connecting" | "lobby" | "playing" | "closed";
 
-/** Cap on buffered tick bundles; oldest are dropped if the app falls behind. */
-const KMAX_BUFFERED_TICKS = 8;
+/** Cap on buffered tick bundles; a deep backlog means the client is stalled. */
+const KMAX_BUFFERED_TICKS = 64;
 
 /**
  * Same-origin `/ws` by default; `?net=ws://host:port/ws` overrides (debugging).
@@ -120,6 +120,10 @@ export class NetClient {
       mouseXRel: input.mouseXRel,
       mouseButtons: input.mouseButtons,
     });
+  }
+  /** Tell the server this seat has built its session and can start ticking. */
+  sendLoaded(): void {
+    this.send({ t: "loaded" });
   }
   sendLevelEnd(last: boolean): void {
     this.send({ t: "levelEnd", last });

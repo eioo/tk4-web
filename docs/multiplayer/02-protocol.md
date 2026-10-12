@@ -91,6 +91,15 @@ Sent every local tick while `phase === "playing"`. The server keeps only the
 latest per seat (it samples; it does not queue). No `tick` field: clients do not
 predict ticks.
 
+### `s.loaded`
+```json
+{ "t": "loaded" }
+```
+Sent once per level after the client has built its `GameSession` from the
+`levelStart`. The server holds the tick loop until **every connected seat** has
+sent it (idle seats are ignored, with a 15 s safety timeout), so all clients
+begin at tick 0 on the same `(tick, inputs)` sequence.
+
 ### `s.levelEnd`
 ```json
 { "t": "levelEnd", "last": false }
@@ -215,6 +224,8 @@ client A (host)        server                 client B
    │ ◄──── c.lobby ──────┤──────────── c.lobby ───►│
    │   (roster now full → auto start)             │
    │ ◄─── c.levelStart ──┤──── c.levelStart ─────►│
+   │  [build session]    │                        │
+   │ s.loaded ──────────►│ ◄──────── s.loaded ────│   (every seat loaded)
    │ s.input ───────────►│                        │
    │ ◄──── c.tick ───────┤──────── c.tick ───────►│  (loop @100 Hz)
    │        …            │            …           │

@@ -31,6 +31,7 @@ describe("client messages", () => {
     { t: "join", v: 1, name: "Paul", code: "KQZAB" },
     { t: "settings", settings: { gameMode: 1, episode: 2, level: 3, players: 4, fragLimit: 30 } },
     { t: "input", keys: 8, mouseXRel: 3, mouseButtons: 1 },
+    { t: "loaded" },
     { t: "levelEnd", last: false },
     { t: "matchEnd", reason: "fragLimit" },
     { t: "ready", state },

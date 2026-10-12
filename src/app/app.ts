@@ -56,6 +56,8 @@ import { drawStatistics, givePlayerPrize, type StatisticsContext } from "./stati
 const WIDTH = 640;
 const HEIGHT = 480;
 const KLevelCompleteDelay = 940;
+/** Max server tick bundles applied per app tick while catching up online. */
+const KMaxOnlineCatchUp = 5;
 const KTimerFreq = 100;
 
 /** `CState::TMainState`. */
@@ -870,6 +872,8 @@ export class App implements MenuHost {
     this.resetKeyQueue();
     this.startGameMusic();
     this.startFadeIn(this.ingamePalette);
+    // Open the server's load barrier: it starts ticking once every seat is here.
+    if (this.online) this.net?.sendLoaded();
   }
 
   /** `CDynGameData::NextLevel` + `SetLatestLevel` at the level transition. */
@@ -905,12 +909,22 @@ export class App implements MenuHost {
     }
   }
 
-  /** Online ongoing: send our input, then step exactly one server bundle. */
+  /** Online ongoing: send our input, then apply the buffered server bundles. */
   private runOngoingOnline(session: GameSession): void {
     this.net?.sendInput(this.onlineInput());
-    const inputs = this.net?.takeTick() ?? null;
-    if (!inputs) return; // lockstep wait: no bundle arrived this tick
-    session.step(inputs);
+
+    // Lockstep: apply the bundles the server sent, in order. Applying several
+    // per frame lets a briefly-stalled client catch up while keeping every
+    // client on the identical (tick, inputs) sequence.
+    let steps = 0;
+    for (;;) {
+      const inputs = this.net?.takeTick() ?? null;
+      if (!inputs || steps >= KMaxOnlineCatchUp) break;
+      session.step(inputs);
+      steps++;
+    }
+    if (steps === 0) return; // no bundle yet this tick: keep waiting
+
     for (const message of session.world.messages) this.messageBoard.addMessage(message, this.clock);
     session.world.messages.length = 0;
     this.playSounds(session.world.sounds);

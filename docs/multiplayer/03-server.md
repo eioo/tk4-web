@@ -64,6 +64,12 @@ dense, with each shifted peer notified by `c.seat`.
 
 ## 3. Tick master
 
+`startLevel` broadcasts `c.levelStart` and enters `playing`, but the tick loop
+stays **paused until every connected seat sends `s.loaded`** (a 15 s timeout
+starts it anyway). This is the lockstep start barrier: if clients began ticking
+at different server ticks they would apply different input sequences and
+diverge. Once all seats are loaded, the loop starts at `tick = 0`:
+
 While `phase === "playing"` the room runs an interval of **10 ms** (100 Hz):
 
 ```

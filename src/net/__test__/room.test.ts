@@ -92,6 +92,9 @@ function startedRoom(settings: NetSettings = coop): {
   manager.handleMessage(a, host("John", settings));
   const code = ofType(a, "hosted")[0].code;
   manager.handleMessage(b, join("Paul", code));
+  // Clients report the level loaded; the server then starts ticking.
+  manager.handleMessage(a, { t: "loaded" });
+  manager.handleMessage(b, { t: "loaded" });
   return { manager, advance, a, b, code };
 }
 
@@ -173,6 +176,27 @@ describe("tick master", () => {
       { keys: 0, mouseXRel: 0, mouseButtons: 0 },
     ]);
     expect(ofType(b, "tick")).toHaveLength(1);
+  });
+
+  test("waits for every seat to report the level loaded", () => {
+    const { manager, advance } = makeHarness();
+    const a = new FakePeer("a");
+    const b = new FakePeer("b");
+    manager.handleMessage(a, host("John"));
+    const code = ofType(a, "hosted")[0].code;
+    manager.handleMessage(b, join("Paul", code));
+    a.take();
+    b.take();
+    advance(10);
+    expect(ofType(a, "tick")).toHaveLength(0);
+
+    manager.handleMessage(a, { t: "loaded" });
+    advance(10);
+    expect(ofType(a, "tick")).toHaveLength(0);
+
+    manager.handleMessage(b, { t: "loaded" });
+    advance(10);
+    expect(ofType(a, "tick")).toHaveLength(1);
   });
 
   test("uses the seat's pending input once, then zero", () => {

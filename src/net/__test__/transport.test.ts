@@ -94,6 +94,16 @@ describe("Bun websocket adapter", () => {
       expect(start.roster.map((r) => r.name)).toEqual(["John", "Paul"]);
       expect((await b.wait("levelStart")).roster).toHaveLength(2);
 
+      // The tick loop is gated on both seats reporting the level loaded.
+      manager.advance(Date.now() + 5);
+      await Bun.sleep(10);
+      expect(a.messages.some((m) => m.t === "tick")).toBe(false);
+      a.send({ t: "loaded" });
+      b.send({ t: "loaded" });
+      await Bun.sleep(25); // let the server process the loaded frames
+      manager.advance(Date.now() + 20);
+      expect((await a.wait("tick")).inputs).toHaveLength(2);
+
       a.ws.close();
       b.ws.close();
     });
