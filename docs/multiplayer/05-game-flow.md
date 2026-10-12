@@ -52,9 +52,11 @@ map to menu screens (`LOBBY`) and the existing `MainState.Game` sub-states
   2. only the local seat's view is rendered (01 §4.1 / 04 §5);
   3. `objectiveFulfilled`/`gameOver` are detected identically everywhere.
 
-- On completion (all clients, same tick):
-  - one client sends `s.levelEnd{last}`;
-  - clients run `Statistics` locally with the level's data.
+- On completion (the sim reaches the same tick everywhere):
+  - the first client to notice sends `s.levelEnd{last}`; the server stops the
+    tick loop and broadcasts `c.levelEnded{last}`;
+  - every client runs `Statistics` locally with the level's data — a straggler
+    that had not reached the objective leaves the sim on `c.levelEnded`.
 
 ### 3.1 Statistics online
 

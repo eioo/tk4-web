@@ -140,6 +140,7 @@ describe("server messages", () => {
       ],
     },
     { t: "seat", seat: 1 },
+    { t: "levelEnded", last: false },
     { t: "peerLeft", seat: 1 },
     { t: "hostChanged", seat: 1 },
     { t: "matchEnded", reason: "victory" },

@@ -187,6 +187,33 @@ describe("tick master", () => {
     expect(ofType(b, "tick")).toHaveLength(1);
   });
 
+  test("coop starts at the host's chosen level and advances from there", () => {
+    const { manager } = makeHarness();
+    const a = new FakePeer("a");
+    const b = new FakePeer("b");
+    manager.handleMessage(a, host("John", { ...coop, level: 2 }));
+    const code = ofType(a, "hosted")[0].code;
+    manager.handleMessage(b, join("Paul", code));
+    const first = ofType(a, "levelStart")[0];
+    expect(first.index).toBe(2);
+    expect(first.states).toBeNull();
+
+    manager.handleMessage(a, { t: "levelEnd", last: false });
+    manager.handleMessage(a, { t: "ready", state: readyState("John") });
+    manager.handleMessage(b, { t: "ready", state: readyState("Paul") });
+    expect(ofType(a, "levelStart")[1].index).toBe(3);
+  });
+
+  test("deathmatch always starts at level 0", () => {
+    const { manager } = makeHarness();
+    const a = new FakePeer("a");
+    const b = new FakePeer("b");
+    manager.handleMessage(a, host("John", { ...coop, gameMode: 1, level: 5 }));
+    const code = ofType(a, "hosted")[0].code;
+    manager.handleMessage(b, join("Paul", code));
+    expect(ofType(a, "levelStart")[0].index).toBe(0);
+  });
+
   test("waits for every seat to report the level loaded", () => {
     const { manager, advance } = makeHarness();
     const a = new FakePeer("a");
@@ -236,6 +263,8 @@ describe("progression barriers", () => {
     manager.handleMessage(a, { t: "levelEnd", last: false });
     manager.handleMessage(a, { t: "ready", state: readyState("John", 700) });
     expect(ofType(a, "levelStart")).toHaveLength(0);
+    // The server tells every client the level ended (stragglers included).
+    expect(ofType(b, "levelEnded")).toHaveLength(1);
     manager.handleMessage(b, { t: "ready", state: readyState("Paul", 900) });
     const start = ofType(a, "levelStart")[0];
     expect(start.index).toBe(1);

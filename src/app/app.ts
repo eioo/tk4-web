@@ -1387,6 +1387,9 @@ export class App implements MenuHost {
       case "levelStart":
         this.beginOnlineLevel(message);
         break;
+      case "levelEnded":
+        this.onlineLevelEnded(message.last);
+        break;
       case "matchEnded":
         this.messageBoard.addMessage(
           message.reason === "victory" ? "Episode complete!" : "Match over.",
@@ -1504,6 +1507,20 @@ export class App implements MenuHost {
     if (this.onlineLevelEndSent) return;
     this.onlineLevelEndSent = true;
     this.net?.sendLevelEnd(this.onlineLastLevel);
+    this.startFadeOut(MainState.Game, GameState.Statistics);
+  }
+
+  /**
+   * The server closed the level. The client that detected it already moved on;
+   * a straggler that had not reached the objective leaves the sim here instead
+   * of stalling with no more tick bundles.
+   */
+  private onlineLevelEnded(last: boolean): void {
+    this.onlineLastLevel = last;
+    if (!this.online || this.onlineLevelEndSent) return;
+    if (this.mainState !== MainState.Game || this.gameState !== GameState.OnGoing) return;
+    this.onlineLevelEndSent = true;
+    this.finishLevel();
     this.startFadeOut(MainState.Game, GameState.Statistics);
   }
 

@@ -129,6 +129,7 @@ export type ServerMessage =
       roster: RosterEntry[];
     }
   | { t: "tick"; tick: number; inputs: SimInput[] }
+  | { t: "levelEnded"; last: boolean }
   | { t: "seat"; seat: number }
   | { t: "peerLeft"; seat: number }
   | { t: "hostChanged"; seat: number }
@@ -331,6 +332,9 @@ export function parseServerMessage(text: string): ServerMessage | null {
       if (!isNonNegativeInt(value.tick)) return null;
       if (!Array.isArray(value.inputs) || !value.inputs.every(isSimInput)) return null;
       return { t: "tick", tick: value.tick, inputs: value.inputs };
+    case "levelEnded":
+      if (typeof value.last !== "boolean") return null;
+      return { t: "levelEnded", last: value.last };
     case "seat":
       if (!isNonNegativeInt(value.seat)) return null;
       return { t: "seat", seat: value.seat };

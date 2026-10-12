@@ -173,7 +173,16 @@ before its first `ready`), and the client substitutes a fresh loadout for it.
 
 Whether this is the episode's final level is derived by the client from the
 episode length (`index >= levelCount - 1`); the server carries no level data.
-Server enters `playing` and starts the tick loop.
+Server enters `playing` but the tick loop stays paused until every connected seat
+sends `s.loaded`.
+
+### `c.levelEnded`
+```json
+{ "t": "levelEnded", "last": false }
+```
+Broadcast when the **first** seat reports `s.levelEnd`. Clients that had not yet
+reached the objective (a straggler behind on bundles) leave the sim and go to
+statistics here instead of stalling once the tick stream stops.
 
 ### `c.seat`
 ```json

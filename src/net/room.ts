@@ -247,7 +247,9 @@ export class Room {
 
   private maybeAutoStart(): void {
     if (this.phase === "lobby" && this.connectedCount() >= this.settings.players) {
-      this.startLevel(0);
+      // Coop starts at the host's chosen level; deathmatch is one level.
+      const startIndex = this.settings.gameMode === 1 ? 0 : this.settings.level;
+      this.startLevel(startIndex, true);
     }
   }
 
@@ -290,7 +292,11 @@ export class Room {
     if (this.phase !== "playing") return;
     this.phase = "intermission";
     this.levelLast = message.last;
+    this.tickEnabled = false;
     for (const s of this.seats) s.ready = false;
+    // Tell everyone, including stragglers that had not reached the objective
+    // when the tick loop stopped, so they can leave the level too.
+    this.broadcast({ t: "levelEnded", last: message.last });
   }
 
   /** A seat finished loading the level; start ticking once they all have. */
@@ -334,10 +340,10 @@ export class Room {
       this.endMatch("victory");
       return;
     }
-    this.startLevel(this.levelIndex + 1);
+    this.startLevel(this.levelIndex + 1, false);
   }
 
-  private startLevel(index: number): void {
+  private startLevel(index: number, first: boolean): void {
     this.levelIndex = index;
     this.phase = "playing";
     this.tickCounter = 0;
@@ -349,7 +355,7 @@ export class Room {
       s.ready = false;
       s.pendingInput = null;
     }
-    const states = index === 0 ? null : this.seats.map((s) => s.lastState);
+    const states = first ? null : this.seats.map((s) => s.lastState);
     this.broadcast({
       t: "levelStart",
       index,
