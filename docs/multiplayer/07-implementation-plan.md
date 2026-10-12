@@ -67,7 +67,7 @@ can host a room, join it, and observe `levelStart` + `tick` broadcasts.
 
 ### N2a — NetClient
 - `src/net/client.ts`: connect, typed send/receive, status, event queue,
-  reconnect-free lifecycle, `s.input` sender, `takeTick()`.
+  reconnect-free lifecycle, `s.input` sender (tick-stamped in N5), RTT ping.
 - `src/net/state.ts`: `NetPlayerState` ⇄ `SimPlayer` (persistent fields only).
 
 ### N2b — menus
