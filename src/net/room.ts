@@ -51,6 +51,8 @@ const KMAX_TICKS_PER_ADVANCE = 5;
 const KMAX_ROOMS = 500;
 /** Start ticking anyway if a client never reports its level loaded. */
 const KLEVEL_LOAD_TIMEOUT_MS = 15000;
+/** Proceed to the next level if a client never reports ready. */
+const KREADY_TIMEOUT_MS = 60000;
 
 function cryptoRandom32(): number {
   const buf = new Uint32Array(1);
@@ -110,6 +112,7 @@ export class Room {
   /** Ticking is gated until every connected seat reports its level loaded. */
   private tickEnabled = false;
   private levelStartedAt = 0;
+  private intermissionSince = 0;
   private readonly loadedSeats = new Set<number>();
 
   constructor(
@@ -224,8 +227,10 @@ export class Room {
       slot.peer = null;
       slot.pendingInput = null;
       this.broadcast({ t: "peerLeft", seat: slot.seat });
-      // A disconnected seat no longer blocks the load barrier.
+      // A disconnected seat no longer blocks the load barrier, and if this was
+      // the last unready seat the intermission barrier resolves here.
       this.checkLoaded();
+      this.checkReady();
     }
 
     // Host migration: keep the same host if it is still connected, else promote
@@ -293,6 +298,7 @@ export class Room {
     this.phase = "intermission";
     this.levelLast = message.last;
     this.tickEnabled = false;
+    this.intermissionSince = this.manager.now();
     for (const s of this.seats) s.ready = false;
     // Tell everyone, including stragglers that had not reached the objective
     // when the tick loop stopped, so they can leave the level too.
@@ -327,6 +333,12 @@ export class Room {
     if (!slot) return;
     slot.ready = true;
     slot.lastState = message.state;
+    this.checkReady();
+  }
+
+  /** Resolve the intermission barrier once every seat is ready or gone. */
+  private checkReady(): void {
+    if (this.phase !== "intermission") return;
     if (this.seats.every((s) => s.ready || s.peer === null)) this.resolveBarrier();
   }
 
@@ -387,6 +399,11 @@ export class Room {
     if (this.emptySince !== null && now - this.emptySince >= KROOM_EMPTY_GRACE_MS) {
       this.manager.destroy(this);
       return;
+    }
+    if (this.phase === "intermission" && now - this.intermissionSince >= KREADY_TIMEOUT_MS) {
+      // A client never reported ready (e.g. it froze): move on rather than
+      // hanging the room forever.
+      this.resolveBarrier();
     }
     if (this.phase !== "playing") {
       this.lastTickAt = now;

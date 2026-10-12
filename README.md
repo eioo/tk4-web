@@ -45,22 +45,41 @@ bun run serve --port 8080 --host 127.0.0.1   # host an existing dist/ without re
 
 `dist/` is a plain static site (`base: "./"`), so it can also be hosted anywhere.
 
+## Online multiplayer (development)
+
+Online play uses a Bun WebSocket server. In development the game is served by
+Vite and a standalone netplay server owns `/ws`, which Vite proxies:
+
+```sh
+bun run net           # WebSocket server on 0.0.0.0:4174 (NET_PORT/--port)
+bun run dev           # http://localhost:5173/ — proxies /ws to the above
+```
+
+In production `tools/serve.ts` serves both the static build **and** `/ws` on the
+same origin (no extra port/DNS/TLS): behind a reverse proxy, make sure the
+WebSocket `Upgrade` is passed through (Caddy needs no special config; Cloudflare
+proxies WebSockets by default).
+
+Online match flow: main menu → _start multiplayer game_ → _online multiplayer_ →
+host (5-letter code) or join (enter the code). Names come from Options → Player 1.
+
 ## Scripts
 
-| Command                     | Purpose                                                           |
-| --------------------------- | ----------------------------------------------------------------- |
-| `bun run dev`               | Vite dev server with HMR                                          |
-| `bun run build`             | `tsc --noEmit` + `vite build` → `dist/`                           |
-| `bun run start`             | Build, then serve `dist/` (production)                            |
-| `bun run serve`             | Serve an existing `dist/` (`--port`/`--host`, default 4173)       |
-| `bun run assets`            | Regenerate `public/assets` from `tapankaikki4/data`               |
-| `bun test`                  | Unit tests (Bun's runner)                                         |
-| `bun run typecheck`         | TypeScript only                                                   |
-| `bun run lint` / `lint:fix` | Lint with oxlint                                                  |
-| `bun run fmt` / `fmt:check` | Format with oxfmt                                                 |
-| `bun run reference`         | Build the standalone C++ oracles (`/tmp/{rotate,render,sim}_gen`) |
-| `bun run parity`            | Rebuild the oracles and diff scenarios + static frames (doc 13)   |
-| `bun run perf`              | Time the presentation path against its 60 fps budget              |
+| Command                     | Purpose                                                             |
+| --------------------------- | ------------------------------------------------------------------- |
+| `bun run dev`               | Vite dev server with HMR (proxies `/ws` to `bun run net`)           |
+| `bun run net`               | Standalone netplay WebSocket server (`--port`/`NET_PORT`, 4174)     |
+| `bun run build`             | `tsc --noEmit` + `vite build` → `dist/`                             |
+| `bun run start`             | Build, then serve `dist/` + `/ws` (production)                      |
+| `bun run serve`             | Serve an existing `dist/` + `/ws` (`--port`/`--host`, default 4173) |
+| `bun run assets`            | Regenerate `public/assets` from `tapankaikki4/data`                 |
+| `bun test`                  | Unit tests (Bun's runner)                                           |
+| `bun run typecheck`         | TypeScript only                                                     |
+| `bun run lint` / `lint:fix` | Lint with oxlint                                                    |
+| `bun run fmt` / `fmt:check` | Format with oxfmt                                                   |
+| `bun run reference`         | Build the standalone C++ oracles (`/tmp/{rotate,render,sim}_gen`)   |
+| `bun run parity`            | Rebuild the oracles and diff scenarios + static frames (doc 13)     |
+| `bun run perf`              | Time the presentation path against its 60 fps budget                |
 
 ## Parity testing
 

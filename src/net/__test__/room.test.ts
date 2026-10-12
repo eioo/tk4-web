@@ -305,6 +305,27 @@ describe("progression barriers", () => {
     expect(start.index).toBe(1);
     expect(start.states?.[1]).toBeNull();
   });
+
+  test("a disconnect during intermission resolves the ready barrier", () => {
+    const { manager, a, b } = startedRoom();
+    a.take();
+    b.take();
+    manager.handleMessage(a, { t: "levelEnd", last: false });
+    manager.handleMessage(a, { t: "ready", state: readyState("John") });
+    manager.handleClose(b); // b leaves without readying
+    expect(ofType(a, "levelStart")[0].index).toBe(1);
+  });
+
+  test("the ready barrier times out if a client never readies", () => {
+    const { manager, advance, a, b } = startedRoom();
+    a.take();
+    b.take();
+    manager.handleMessage(a, { t: "levelEnd", last: false });
+    advance(59_000);
+    expect(ofType(a, "levelStart")).toHaveLength(0);
+    advance(2_000);
+    expect(ofType(a, "levelStart")).toHaveLength(1);
+  });
 });
 
 describe("roster changes", () => {
