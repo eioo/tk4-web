@@ -273,7 +273,12 @@ export class App implements MenuHost {
       return;
     }
     this.effect.fresh = false;
-    this.fb.clear(0);
+    // `CGUIStateQuit::RunFrame` always returns true, so the original redraws
+    // the confirmation box every frame on the persistent buffer: the border
+    // brightens (+1/frame) and the interior darkens (-10/frame) until they
+    // saturate. Keep `fb` across those frames so the port accumulates the same
+    // way; every other state is cleared and redrawn from scratch.
+    if (this.mainState !== MainState.Quit) this.fb.clear(0);
     this.drawState();
     this.messageBoard.draw(this.fontSet.get(GameFont.SmallFont).font, this.fb);
     // Keep the last frame for overlay states; don't overwrite it while an
@@ -528,9 +533,9 @@ export class App implements MenuHost {
         this.drawGame();
         break;
       case MainState.Quit:
-        // `CGUIStateQuit` draws the confirmation box over the last frame (the
-        // original never clears between states, so the menu stays visible).
-        this.fb.pixels.set(this.snapshot);
+        // `CGUIStateQuit` draws the confirmation box over the frozen frame on
+        // every frame; `render()` deliberately keeps `fb` so `drawBox`
+        // accumulates (border up to 63, interior to black).
         this.drawQuitMenu();
         break;
       default:
@@ -584,16 +589,12 @@ export class App implements MenuHost {
     const starty = Math.trunc(this.fb.height / 2 - handle.font.height / 2);
     const endx = Math.trunc(this.fb.width / 2 + lineWidth / 2);
     const endy = Math.trunc(this.fb.height / 2 + handle.font.height / 2);
-    const rect = { left: startx - 10, top: starty - 10, right: endx + 10, bottom: endy + 10 };
     // `CGraphicsBuffer::DrawBox`: bright 1px border, interior darkened by 10.
-    this.fb.drawBox(rect, 10);
-    // The original only darkens the frozen frame, so the (dimmed) menu text is
-    // still behind the box. The port redraws whole frames, which makes that
-    // text collide with the confirmation text, so clear the interior to the
-    // opaque box the original shows.
-    this.fb.fillRect(
-      { left: rect.left + 1, top: rect.top + 1, right: rect.right - 1, bottom: rect.bottom - 1 },
-      0,
+    // Called every frame (see `render`), so the box saturates as in the
+    // original: light border, black interior, the frozen menu hidden.
+    this.fb.drawBox(
+      { left: startx - 10, top: starty - 10, right: endx + 10, bottom: endy + 10 },
+      10,
     );
     this.writeText(handle, startx, starty, text, VAlign.Below, HAlign.ToRight);
   }

@@ -91,10 +91,11 @@ only redraws dirty areas, so `CGUIStateQuit` (main-menu quit) and `CGameSubState
 Likewise a game start calls `SkipDrawOnce()` so the episode list stays on screen while
 the fade-out runs — no menu redraw in between. The port redraws in full each frame, so it
 keeps a snapshot of the last live frame and blits that for these overlay/frozen cases
-(`App.overlayFrozen`, `MenuContainer.isSuspended`). For the main-menu quit box, the
-original's `DrawBox` only darkens the frozen frame; on a full redraw that leaves the menu
-text colliding with the confirmation text, so the port clears the box interior to black
-(`App.drawQuitMenu`) to match the original's appearance.
+(`App.overlayFrozen`, `MenuContainer.isSuspended`). The main-menu quit box is the
+exception: `CGUIStateQuit::RunFrame` always returns true, so the original redraws
+`DrawBox` every frame and it accumulates (border `+1` saturates at index 63, interior
+`-10` goes black). `App.render` keeps the framebuffer across `MainState.Quit` frames so
+the port accumulates identically instead of redrawing over the snapshot.
 
 ### Shop
 
