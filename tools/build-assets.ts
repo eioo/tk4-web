@@ -31,7 +31,7 @@ const srcPath = srcDir.pathname;
 const sourceRepo = "https://github.com/suomipelit/tapankaikki4.git";
 
 /** Clone the upstream data checkout once, so a fresh tree can build assets. */
-async function ensureSource(): Promise<void> {
+export async function ensureSource(): Promise<void> {
   if (existsSync(sourceDir.pathname)) {
     if (await Bun.file(new URL("data/palette.tab", sourceDir)).exists()) return;
     process.stderr.write(

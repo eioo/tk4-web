@@ -105,6 +105,9 @@ unless needed — runtime decode keeps parity with the original's derived data.
 - `bun run assets:ensure` (`tools/ensure-assets.ts`) runs it only when
   `public/assets/manifest.json` is missing. `bun run dev` and `bun run start` call it
   first, so a fresh checkout builds assets on demand.
+- `bun run assets:source` (`tools/ensure-source.ts`) only fetches the `tapankaikki4/`
+  checkout, without copying anything; CI runs it before the tests, which read the
+  original data directly.
 - Publish an `assets/manifest.json` (key → path, dims, palette refs) so the loader can
   fetch lazily (music especially, ~40 MB total).
 - Real-data checks in the script: assert palette sizes, EFPs decode fully, level

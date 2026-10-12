@@ -25,6 +25,7 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 | `bun run dev` | Ensure assets, then Vite (HMR) + netplay WebSocket server in parallel |
 | `bun run assets` | Rebuild `public/assets` from `tapankaikki4/data` (clones it if missing) |
 | `bun run assets:ensure` | Build `public/assets` only if it is missing |
+| `bun run assets:source` | Fetch only the `tapankaikki4/` checkout (cloned if missing) |
 | `bun run lint` | Lint (`oxlint`) |
 | `bun run lint:fix` | Lint and apply safe fixes |
 | `bun run fmt` | Format (`oxfmt`) |
@@ -40,8 +41,11 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to
 `master` and on every pull request: `bun install --frozen-lockfile`, then
 `bun run typecheck`, `bun run lint`, `bun run fmt:check`, `bun test` and
-`bun run build`. Parity (`bun run parity`) is deliberately **not** in CI — it compiles
-the C++ oracle and needs `g++` — so run it locally whenever simulation code changes.
+`bun run build`. Before the tests it runs `bun run assets:source` to fetch the
+upstream checkout, because the suite reads the original data directly from
+`tapankaikki4/data/`. Parity (`bun run parity`) is deliberately **not** in CI — it
+compiles the C++ oracle and needs `g++` — so run it locally whenever simulation code
+changes.
 
 ## Needed to build & run the ORIGINAL (the "reference oracle")
 

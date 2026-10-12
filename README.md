@@ -109,6 +109,7 @@ design is documented under [`docs/multiplayer/`](docs/multiplayer/README.md).
 | `bun run preview`           | Vite's preview server for an existing build                         |
 | `bun run assets`            | Rebuild `public/assets` (clones `tapankaikki4/` if missing)         |
 | `bun run assets:ensure`     | Build `public/assets` only if it is missing                         |
+| `bun run assets:source`     | Fetch only the `tapankaikki4/` checkout (cloned if missing)         |
 | `bun test`                  | Unit tests (Bun's runner)                                           |
 | `bun run typecheck`         | TypeScript only                                                     |
 | `bun run lint` / `lint:fix` | Lint with oxlint                                                    |

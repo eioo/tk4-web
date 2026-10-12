@@ -33,6 +33,10 @@ jobs:
       - name: Check formatting
         run: bun run fmt:check
 
+      - name: Fetch original game data
+        # Tests read the original data directly from tapankaikki4/data/.
+        run: bun run assets:source
+
       - name: Test
         run: bun test
 
