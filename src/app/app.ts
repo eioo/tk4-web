@@ -24,7 +24,7 @@ import { GameDrawer } from "../render/drawer";
 import { GraphicsFader, scalePalette } from "../render/fader";
 import { Framebuffer } from "../render/fb";
 import { MessageBoard } from "../render/message-board";
-import { Canvas2DPresenter } from "../render/presenters/canvas2d";
+import { createPresenter } from "../render/presenters";
 import { GameStatistics } from "../sim/statistics";
 import { EnemyTypes, SoundEffect, type SoundEvent, WeaponId, WeaponTypes } from "../sim/types";
 import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
@@ -137,7 +137,7 @@ function makeEffect(): EffectState {
 }
 
 export class App implements MenuHost {
-  private readonly presenter = new Canvas2DPresenter(WIDTH, HEIGHT);
+  private readonly presenter = createPresenter(WIDTH, HEIGHT);
   private readonly fb = new Framebuffer(WIDTH, HEIGHT);
   private readonly post = new Framebuffer(WIDTH, HEIGHT);
   private readonly dark = new Uint8Array(WIDTH * HEIGHT);

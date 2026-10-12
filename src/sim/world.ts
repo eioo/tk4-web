@@ -329,6 +329,7 @@ export class SimWorld {
           approxDistance(BulletTypes[WeaponTypes[t.currentWeapon].bulletType]) * 0.75) /
           t.speed,
       );
+      if (e.walkCounter < 0) e.walkCounter = 0;
     }
   }
 
@@ -641,9 +642,9 @@ export class SimWorld {
 
     b.spriteAngle = f32(b.spriteAngle + b.spriteAngleAdd);
     b.spriteAngle = angleFix(b.spriteAngle);
-    if (b.spriteAngleAdd > 0) b.spriteAngleAdd = f32(b.spriteAngleAdd - 0.4);
-    if (b.spriteAngleAdd < 0) b.spriteAngleAdd = f32(b.spriteAngleAdd + 0.4);
-    if (b.spriteAngleAdd >= -0.4 && b.spriteAngleAdd <= 0.4) b.spriteAngleAdd = 0;
+    if (b.spriteAngleAdd > 0) b.spriteAngleAdd = f32(b.spriteAngleAdd - f32(0.4));
+    if (b.spriteAngleAdd < 0) b.spriteAngleAdd = f32(b.spriteAngleAdd + f32(0.4));
+    if (b.spriteAngleAdd >= -f32(0.4) && b.spriteAngleAdd <= f32(0.4)) b.spriteAngleAdd = 0;
 
     return !alive;
   }
@@ -1149,14 +1150,11 @@ export class SimWorld {
         for (let a = 0; a < 16; a++)
           if (this.rng.rand() % 2)
             this.newEffect(EffectId.Blood, e.x + 15, e.y + 15, Math.trunc(a * 22.5), 2);
-        for (let a = 0; a < 3; a++)
-          this.newBodyPart(
-            e.x + 4,
-            e.y + 4,
-            this.rng.rand() % 360,
-            f32(spd + f32((this.rng.rand() % 2) * 0.3)),
-            (a + alku) % 7,
-          );
+        for (let a = 0; a < 3; a++) {
+          // Oracle: spd2 (rand()%2) is drawn before the angle (rand()%360).
+          const spd2 = f32(spd + f32((this.rng.rand() % 2) * 0.3));
+          this.newBodyPart(e.x + 4, e.y + 4, this.rng.rand() % 360, spd2, (a + alku) % 7);
+        }
         this.playPosSound(SoundEffect.Death, e.x, e.y);
       }
       if (t.explosionDeath) {
@@ -1369,7 +1367,7 @@ export class SimWorld {
       this.enemyDecideAndMove(e);
       if (e.pushPower > 0) {
         this.enemyMove(e, e.pushAngle, e.pushPower);
-        e.pushPower = f32(e.pushPower - 0.075);
+        e.pushPower = f32(e.pushPower - f32(0.075));
       }
       this.enemyCheck(e);
       this.enemyAnimate(e);
@@ -1639,7 +1637,7 @@ export class SimWorld {
       c.textX = m.x;
       c.textY = m.y;
       c.textCounter = f32(c.textCounter - c.textCounter2);
-      c.textCounter2 = f32(c.textCounter2 + 0.05);
+      c.textCounter2 = f32(c.textCounter2 + f32(0.05));
       if (c.textCounter <= 0) {
         c.inUse = 0;
         if (this.crateRespawn) c.wakeUpCounter = 1;
@@ -1831,7 +1829,7 @@ export class SimWorld {
       if (!p.local) continue;
       if (p.pushPower > 0) {
         this.playerMove(p, p.pushAngle, p.pushPower, drawRect);
-        p.pushPower = f32(p.pushPower - 0.075);
+        p.pushPower = f32(p.pushPower - f32(0.075));
       }
     }
 

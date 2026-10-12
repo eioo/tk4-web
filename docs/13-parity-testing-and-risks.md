@@ -47,18 +47,41 @@ near-verbatim and need only libm (build them all with `bun run reference`):
   `CBodyPart` (move/kick/push), `CCrate` (placement/pickup/text), `CLevelRuntimeData::Explo`
   and the per-tick `RunFrame` order.
   `sim_gen replay <leveldump> <script> <out.trace> <datadir>` writes a per-tick state trace
-  (players, bullets, enemies, body parts, effects, crates, dead enemies); the script is
-  produced by `tools/reference/dump-script.ts` from `src/sim/replay.ts#buildScript` (the same
-  script the TS test uses). `<datadir>` is the original `data/` dir, used to load
-  `fnts/menu15x18dark.fnt` for the crate pickup-text counter.
+  (players, bullets, enemies, body parts, effects, crates, dead enemies). The scripts
+  come from `src/sim/replay.ts#SCENARIOS` (the same scripts the TS test uses) and are
+  serialised by `serializeScript`; `<datadir>` is the original `data/` dir, used to load
+  `fnts/menu15x18dark.fnt` for the crate pickup-text counter. The oracle also models
+  `CEnemy::SoundHeard` (positional samples make nearby hostile enemies assault), so a
+  weapons/death scenario exercises the hearing path. Running it all is one command:
+  `bun run parity` (below).
 
 The TypeScript tests hash the port's output and compare against the oracle's output
 (`sha256` over the pixel buffer / trace), giving byte-exact verification without a
 screenshot workflow. These have validated `RotateSprites`/`ZoomWall`/`MakeFloors`, the
 static render path across old- and new-format levels, the `CMath` tables, glibc `rand()`,
 the ten light maps and `CGameDrawer::DrawLight`, the `CFonts` font writer and the HUD
-primitives, and a 400-tick player/bullet/enemy/effect replay. The full reference build is
-still needed for audio and menu parity.
+primitives, and the M9 scenario replays below. The full reference build is still needed
+for audio and menu parity.
+
+### The parity task (`bun run parity`)
+
+`tools/parity.ts` is the CI-style task: it rebuilds the oracles, regenerates every
+scenario's trace and each static frame from the reference, runs the identical inputs
+through the port, and reports the first differing byte per case (exiting non-zero on any
+drift). The two committed fixture families are `tools/reference/fixtures/<name>.{script,trace}`
+and the frame hashes in `src/render/frames.ts`; `--update` rewrites them, and
+`bun test` re-checks them without a compiler.
+
+Scenarios (`src/sim/replay.ts#SCENARIOS`) and what they cover:
+
+| Scenario | Level | Covers |
+|----------|-------|--------|
+| `replay1` | `default/level1` | movement/camera, weapon switch, bullet physics, bouncing, two players |
+| `weapons` | `small` | every weapon and bullet type, explosions, wall bouncing, sprite spin |
+| `combat` | `jailbreak/level1` | placed enemies, `SoundHeard`, AI assault/shooting, enemy death + body parts |
+| `crates` | `jailbreak/level1` | walking over a placed crate (pickup text and stats) |
+
+Static frames (`src/render/frames.ts`) cover six levels' first start points.
 
 ## Determinism
 
@@ -112,11 +135,20 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   and push but is never moved (the original would move it on its own client). Fine for
   single-machine traces; multiplayer (split-screen and WebRTC/WebSocket netplay) is
   deferred to a later milestone.
-- **`CEnemy::SoundHeard` is not in the oracle.** The port plays positioned samples and
-  lets hostile enemies within sight distance hear them (docs/04), but `simreference.h`
-  does not model this yet, so `runReplay` sets `SimWorld.hearSounds = false`. The shipped
-  replay scenario does not otherwise trigger hearing; M9 should add oracle support and a
-  scenario that exercises it.
+- **`CEnemy::SoundHeard` is modelled.** The oracle now mirrors `CEnemy::SoundHeard`
+  (positional samples make nearby hostile enemies with line of sight start an assault),
+  and the `combat` scenario exercises it; `SimWorld.hearSounds` is on for both sides.
+  Note the original clamps `iWalkCounter` to `>= 0`; the port does too.
+- **Float32 storage.** The C++ tables store `float` (32-bit), and libc/`g++` arithmetic
+  rounds each operation to `float`. The port keeps the same values, so table float fields
+  are rounded with `f32()` (see `src/sim/types.ts`) and every mixed-constant expression
+  must round its literals (e.g. `f32(x - f32(0.075))`, not `f32(x - 0.075)`), or the two
+  drift after a few hundred ticks. M9 found and fixed several such sites
+  (`pushPower` decay, `spriteAngleAdd` decay, crate text speed, bullet `slow`/`approxDistance`).
+- **Vector reallocation in the oracle.** `SimMoveBullet` can append bullets (an explosion's
+  rays), which reallocates `SimWorld::bullets`; iterating it by reference dangled and gave
+  nondeterministic (even hanging) traces. `SimPerFrameCalc` now copies the bullet, runs it,
+  and writes it back, matching the port's stable object reference.
 - **`std::sort` not stable.** Enemies/body parts are sorted by X each tick; ties can
   reorder. The oracle uses `std::stable_sort` and the port uses `Array.prototype.sort`
   (stable per spec), so the two agree with each other regardless of ties; this may still
@@ -138,33 +170,40 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
    - Seeded scenario scripts (spawn, run N ticks, issue inputs) produce a trace:
      entity positions/angles/HP, bullet/enemy/body-part/effect/crate state, money.
    - Compare port trace to a reference trace; assert equality (or a pinned, documented
-     acceptable difference). M4: `tools/reference/fixtures/replay1.{script,trace}` and
-     `src/sim/__test__/replay.test.ts` (400 ticks, byte-identical: enemy spawn/AI/shooting,
-     effect roll, steam, bullets vs enemies, crates placed). Enemy death/body parts/crate
-     pickup are exercised interactively in the browser; a dedicated kill/pickup scenario is
-     planned.
+     acceptable difference). M9: `src/sim/replay.ts#SCENARIOS` drives
+     `src/sim/__test__/replay.test.ts` and `bun run parity` over
+     `tools/reference/fixtures/<name>.{script,trace}` — `replay1` (400 ticks),
+     `weapons`, `combat` (enemy death/body parts/hearing) and `crates` (pickup).
 3. **Golden frames**
    - At fixed scenarios, diff the presented framebuffer against a reference screenshot
      using pixel-diff/SSIM. Allow tolerance only for documented non-determinism.
+   - M9: `src/render/frames.ts` lists six levels' first start points; the static-frame
+     test and `bun run parity` both hash them against the oracle's bytes.
 4. **Reference build oracle** — see above.
 
 ## Suggested scenarios
 
-- Level load/spawn parity (entity placement from a seed).
-- Player movement + camera pan on an open level.
-- Firing each weapon type; bullet travel, bounce, collision, explosion.
-- Enemy engagement: sight, approach, shooting, damage, death (each enemy type).
-- Body-part physics and pickup text.
-- Crate pickup of each type; DM crate respawn.
-- Full level completion → statistics (money/time bonus).
-- Screen transitions (fade/zoom) and menu rendering.
+Covered by the M9 parity task (`src/sim/replay.ts#SCENARIOS`): movement + camera pan,
+weapon switching, every weapon/bullet type (travel, bounce, collision, explosion), enemy
+engagement (sight, assault from hearing, shooting, damage, death, body parts), and crate
+pickup. Static-frame parity covers level load/spawn rendering on six levels.
+
+Still to add as needed: body-part pickup text parity, crate pickup of each type and DM
+crate respawn, full level completion → statistics (money/time bonus), and screen
+transitions (fade/zoom) / menu rendering (needs the full SDL reference build).
 
 ## Performance budget
 
 - Index buffer: 640×480 = 307 200 bytes; RGBA conversion 1 228 800 bytes/frame.
-- Target 60 fps. If `putImageData` + `refresh()` is too slow on low-end devices, switch
-  to the index-texture + palette-shader presenter (doc 10, approach B) behind the same
-  interface.
+- Target 60 fps (16.67 ms/frame). `bun run perf` (`tools/perf.ts`) times the CPU work the
+  port owns — index→RGBA conversion at 640×480…1280×960 and the 640×480 static compose —
+  and exits non-zero over budget. Measured on the dev machine: convert 640×480 ≈ 0.3 ms,
+  1280×960 ≈ 1.1 ms, compose 640×480 ≈ 2 ms, leaving ample room for the display blit.
+- Two presenters share the `Presenter` interface (doc 10): Canvas2D `putImageData`
+  (default) and the WebGL index-texture + palette shader (`src/render/presenters/webgl.ts`,
+  selectable with `?presenter=webgl`). The WebGL path produces byte-identical pixels
+  (verified against `Framebuffer.toRgba`) and is the fallback for large modes or low-end
+  devices that miss the CPU budget.
 
 ## Risk register
 

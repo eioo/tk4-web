@@ -36,6 +36,14 @@ enum SimEffect { SE_NONE = -1, SE_BLOOD = 0, SE_SMOKE, SE_EXPLO, SE_METAL, SE_ME
 	SE_SMOKE2, SE_BLOODG, SE_GUNSMOKE, SE_STEAM, SE_TELEPORT, SE_FOOTPRINT, SE_FLAME, SE_FLAME2 };
 enum SimEffectKind { EK_DEFAULT = 0, EK_ROCKET, EK_RAY };
 
+// TIngameSoundEffect (defines.h) — positional sample ids. Only the id matters
+// for parity (CEnemy::SoundHeard); the samples themselves live in the port.
+enum SimSoundEffect {
+	SSE_NOSOUND = -1, SSE_PISTOL = 0, SSE_SHOTGUN, SSE_UZI, SSE_AUTORIFLE, SSE_BAZOOKA,
+	SSE_HIT, SSE_SMALL_EXPLOSION, SSE_EXPLOSION, SSE_BIG_EXPLOSION, SSE_CLICK, SSE_DEATH,
+	SSE_WOOSH, SSE_FLAME, SSE_METAL_HIT, SSE_GRENADE_LAUNCHER, SSE_KICK_HEAD, SSE_AMOUNT
+};
+
 enum SimDirection { SD_NOWHERE = -1, SD_UP, SD_DOWN, SD_LEFT, SD_RIGHT };
 
 // Input key/button bits (scripted, matches the port's input mapping).
@@ -166,6 +174,7 @@ static void InitBulletTypes() {
 struct WeaponType {
 	const char* name; int sprite; bool singleHand; int cost; int loadingTime; int smoke;
 	int bulletAmount; int angleAdd; bool gun; int bulletType; int priority; bool consumesBullets;
+	int sound;
 };
 
 static WeaponType gWeapons[W_AMOUNT];
@@ -189,6 +198,19 @@ static void InitWeaponTypes() {
 	gWeapons[W_FLAME] = { "Flame Thrower", 3, false, 3000, 3, 0, 1, 10, true, B_GAS, 4, true };
 	gWeapons[W_MINE] = { "Mine Dropper", 0, false, 1000, 50, 0, 1, 1, false, B_MINES, 0, true };
 	gWeapons[W_GRENADE] = { "Grenade Launcher", 3, false, 2000, 50, 1, 1, 10, true, B_GREN, 0, true };
+	for (int i = 0; i < W_AMOUNT; i++) gWeapons[i].sound = SSE_NOSOUND;
+	gWeapons[W_FIST].sound = SSE_HIT;
+	gWeapons[W_PISTOL].sound = SSE_PISTOL;
+	gWeapons[W_SHOTGUN].sound = SSE_SHOTGUN;
+	gWeapons[W_UZI].sound = SSE_UZI;
+	gWeapons[W_AUTORIFLE].sound = SSE_AUTORIFLE;
+	gWeapons[W_ROCKET].sound = SSE_BAZOOKA;
+	gWeapons[W_AUTOLAUNCH].sound = SSE_BAZOOKA;
+	gWeapons[W_HEAVYLAUNCH].sound = SSE_BAZOOKA;
+	gWeapons[W_AUTOSHOTGUN].sound = SSE_SHOTGUN;
+	gWeapons[W_FLAME].sound = SSE_FLAME;
+	gWeapons[W_GRENADE].sound = SSE_GRENADE_LAUNCHER;
+	gBullets[B_GREN].bounceSound = SSE_METAL_HIT;
 }
 
 // ---- M4: effect / body part / enemy type tables ----
@@ -233,7 +255,7 @@ static void InitEffectTypes() {
 	{ EffectType& e = gEffects[SE_FLAME2]; e.tCount = 1; e.order = 1; e.delay = 38; e.lightTable = SL_EXPLOSION; e.lightAddConst = -5; e.lightAddMul = -0.33f; }
 }
 
-struct BodyPartType { float slow, kickspeed; int bounce, dropBlood, spriteOffset; };
+struct BodyPartType { float slow, kickspeed; int bounce, dropBlood, spriteOffset; int sound; };
 static BodyPartType gBodyParts[BP_AMOUNT];
 static void InitBodyPartTypes() {
 	gBodyParts[BP_HEAD] = { -0.04f, 3.8f, 1, 1, 0 };
@@ -246,6 +268,11 @@ static void InitBodyPartTypes() {
 	gBodyParts[BP_BURNED] = { -0.05f, 3.0f, 0, 0, 252 };
 	gBodyParts[BP_SKULL] = { -0.04f, 4.0f, 1, 0, 273 };
 	gBodyParts[BP_BONES] = { -0.05f, 3.0f, 0, 0, 294 };
+	for (int i = 0; i < BP_AMOUNT; i++) gBodyParts[i].sound = SSE_HIT;
+	gBodyParts[BP_HEAD].sound = SSE_KICK_HEAD;
+	gBodyParts[BP_BURNED].sound = SSE_KICK_HEAD;
+	gBodyParts[BP_SKULL].sound = SSE_KICK_HEAD;
+	gBodyParts[BP_BONES].sound = SSE_KICK_HEAD;
 }
 
 struct EnemyType {
@@ -449,6 +476,32 @@ static void SimKickBodyParts(SimWorld&, SimPlayer&);
 
 static int SimEnemyOwnerId(const SimEnemy& e) { return -e.uid - 2; }
 
+// CEnemy::SoundHeard (+ CGameSubStateOngoing::SoundHeard). A positional sample
+// (`CSoundPlayer::PlayPosSample`) notifies every enemy: a hostile enemy that is
+// not already assaulting, within sight distance and with line of sight to the
+// source, starts an assault towards it.
+static void SimSoundHeard(SimWorld& w, int aEffect, int posX, int posY) {
+	if (aEffect == SSE_NOSOUND || aEffect == SSE_CLICK) return;
+	for (size_t i = 0; i < w.enemies.size(); i++) {
+		SimEnemy& e = w.enemies[i];
+		const EnemyType& t = gEnemies[e.type];
+		if (!t.hostile) continue;
+		if (e.state == ES_ASSAULT) continue;
+		float dist = GetDistF((float)posX, (float)posY, e.loc.x, e.loc.y);
+		if (dist < (float)t.sightDistance &&
+			w.level.VisibilityCheck({ (float)((int)e.loc.x + 14), (float)((int)e.loc.y + 14) },
+				{ (float)posX, (float)posY }, NULL)) {
+			e.state = ES_ASSAULT;
+			e.targetAngle = (int)GetAngleF(e.loc.x, e.loc.y, (float)posX, (float)posY);
+			int wc = (int)((dist -
+				(float)SimApproxDistance(gBullets[gWeapons[t.currentWeapon].bulletType]) * 0.75f) /
+				t.speed);
+			if (wc < 0) wc = 0;
+			e.walkCounter = wc;
+		}
+	}
+}
+
 static void SimNewEffect(SimWorld& w, int type, float x, float y, int angle, float speed) {
 	if (type == SE_NONE) return;
 	float w2 = (float)(w.level.iWidth * KBlockSpriteSize);
@@ -574,6 +627,8 @@ static void SimExplo(SimWorld& w, CoordI pos, int size, float share, int owner) 
 			}
 		}
 	}
+	int fx = (size <= 1) ? SSE_SMALL_EXPLOSION : (size <= 3 ? SSE_EXPLOSION : SSE_BIG_EXPLOSION);
+	SimSoundHeard(w, fx, pos.x, pos.y);
 }
 
 static int SimCheckWalls(SimWorld& w, int mode, CoordI newLoc) {
@@ -663,6 +718,7 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 					hitwall = true;
 				} else {
 					SimBounce(w, b, t.bounceType, ToInt2(newPos));
+					SimSoundHeard(w, t.bounceSound, (int)b.location.x, (int)b.location.y);
 					newPos = AddMovF(b.location, b.angle, b.speed / loopTimes);
 				}
 			}
@@ -734,6 +790,7 @@ static int SimMoveBullet(SimWorld& w, SimBullet& b) {
 			}
 		}
 		if (b.ownerId >= 0 && t.power > 0 && !b.hitReported) b.hitReported = true;
+		if (t.type == BK_FIST) SimSoundHeard(w, gWeapons[W_FIST].sound, rpos.x, rpos.y);
 	}
 
 	if ((t.type == BK_NORMAL || t.type == BK_FIST) && (b.time == 0 || hitwall) && !hit && t.speed > 10)
@@ -928,6 +985,7 @@ static void SimShoot(SimWorld& w, SimPlayer& p, int hand, int owner) {
 	if (weaponPtr.consumesBullets) p.bullets[weaponPtr.bulletType]--;
 
 	if (p.shootCount % gBullets[weaponPtr.bulletType].multiplier == 0) {
+		SimSoundHeard(w, weaponPtr.sound, rpos.x, rpos.y);
 		if (weaponPtr.smoke) {
 			int ra = (int)p.angle;
 			CoordI ofs = MovISet(ra, 8);
@@ -1075,9 +1133,10 @@ static void SimBodyPartPush(SimBodyPart& bp, float vx, float vy) {
 	CoordF m = AddMovF(v, bp.angle, bp.speed);
 	SimBodyPartSetAngleAndSpeed(bp, m);
 }
-static void SimBodyPartBounce(SimBodyPart& bp, int side) {
+static void SimBodyPartBounce(SimWorld& w, SimBodyPart& bp, int side) {
 	if (side == SD_DOWN || side == SD_UP) bp.angle = 360 - bp.angle;
 	else if (side == SD_RIGHT || side == SD_LEFT) bp.angle = 270 + (270 - bp.angle);
+	SimSoundHeard(w, gBodyParts[bp.type].sound, (int)bp.loc.x, (int)bp.loc.y);
 }
 static void SimBodyPartKick(SimBodyPart& bp, int angle) {
 	bp.angle = angle;
@@ -1098,26 +1157,26 @@ static void SimBodyPartMove(SimWorld& w, SimBodyPart& bp) {
 		if (w.level.LevelData((tx + 10 - reuna2) / KBlockSpriteSize, (ty + reuna) / KBlockSpriteSize).iType == 0 &&
 			w.level.LevelData((tx + 10 + reuna2) / KBlockSpriteSize, (ty + reuna) / KBlockSpriteSize).iType == 0)
 			bp.loc.y = npy;
-		else if (bt.bounce) SimBodyPartBounce(bp, SD_DOWN);
+		else if (bt.bounce) SimBodyPartBounce(w, bp, SD_DOWN);
 		else { vec.y = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
 	} else if (npy > bp.loc.y) {
 		if (w.level.LevelData((tx + 10 - reuna2) / KBlockSpriteSize, (ty + 20 - reuna) / KBlockSpriteSize).iType == 0 &&
 			w.level.LevelData((tx + 10 + reuna2) / KBlockSpriteSize, (ty + 20 - reuna) / KBlockSpriteSize).iType == 0)
 			bp.loc.y = npy;
-		else if (bt.bounce) SimBodyPartBounce(bp, SD_UP);
+		else if (bt.bounce) SimBodyPartBounce(w, bp, SD_UP);
 		else { vec.y = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
 	}
 	if (npx < bp.loc.x) {
 		if (w.level.LevelData((tx + reuna) / KBlockSpriteSize, (ty + 10 - reuna2) / KBlockSpriteSize).iType == 0 &&
 			w.level.LevelData((tx + reuna) / KBlockSpriteSize, (ty + 10 + reuna2) / KBlockSpriteSize).iType == 0)
 			bp.loc.x = npx;
-		else if (bt.bounce) SimBodyPartBounce(bp, SD_RIGHT);
+		else if (bt.bounce) SimBodyPartBounce(w, bp, SD_RIGHT);
 		else { vec.x = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
 	} else if (npx > bp.loc.x) {
 		if (w.level.LevelData((tx + 20 - reuna) / KBlockSpriteSize, (ty + 10 - reuna2) / KBlockSpriteSize).iType == 0 &&
 			w.level.LevelData((tx + 20 - reuna) / KBlockSpriteSize, (ty + 10 + reuna2) / KBlockSpriteSize).iType == 0)
 			bp.loc.x = npx;
-		else if (bt.bounce) SimBodyPartBounce(bp, SD_LEFT);
+		else if (bt.bounce) SimBodyPartBounce(w, bp, SD_LEFT);
 		else { vec.x = 0; SimBodyPartSetAngleAndSpeed(bp, vec); }
 	}
 	bp.speed += bt.slow;
@@ -1167,6 +1226,7 @@ static bool SimEnemyGetDamage(SimWorld& w, SimEnemy& e, float damage, int observ
 	e.energy -= damage;
 	if (e.energy <= 0) {
 		if (e.burning && !t.explosionDeath) {
+			SimSoundHeard(w, SSE_WOOSH, (int)e.loc.x, (int)e.loc.y);
 			SimNewEffect(w, SE_EXPLO, e.loc.x + 12, e.loc.y + 12, 0, 0);
 			SimNewEffect(w, SE_EXPLO, e.loc.x + 18, e.loc.y + 12, 0, 0);
 			SimNewEffect(w, SE_EXPLO, e.loc.x + 15, e.loc.y + 18, 0, 0);
@@ -1180,6 +1240,7 @@ static bool SimEnemyGetDamage(SimWorld& w, SimEnemy& e, float damage, int observ
 				float spd2 = spd + (float)(w.rng.Rand() % 2) * 0.3f;
 				SimNewBodyPart(w, e.loc.x + 4, e.loc.y + 4, w.rng.Rand() % 360, spd2, (a + alku) % 7);
 			}
+			SimSoundHeard(w, SSE_DEATH, (int)e.loc.x, (int)e.loc.y);
 		}
 		if (t.explosionDeath) {
 			SimExplo(w, ToInt2({ e.loc.x + 4, e.loc.y + 4 }), 2, 1.0f, observer);
@@ -1264,6 +1325,7 @@ static void SimEnemyShoot(SimWorld& w, SimEnemy& e) {
 		SimNewBullet(w, wp.bulletType, sp, ia + r, 0, 1.0f / wp.bulletAmount, SimEnemyOwnerId(e));
 	}
 	if (e.shootCount % gBullets[wp.bulletType].multiplier == 0) {
+		SimSoundHeard(w, wp.sound, (int)e.loc.x, (int)e.loc.y);
 		if (wp.smoke) {
 			CoordF p = AddMovF({ e.loc.x + 14, e.loc.y + 14 }, ia, 8.0f);
 			p = AddMovF(p, ia + 90, 5.0f);
@@ -1617,8 +1679,11 @@ static void SimPerFrameCalc(SimWorld& w) {
 		[](const SimBodyPart& a, const SimBodyPart& b) { return a.loc.x < b.loc.x; });
 
 	for (size_t i = 0; i < w.bullets.size();) {
-		if (SimMoveBullet(w, w.bullets[i])) w.bullets.erase(w.bullets.begin() + i);
-		else i++;
+		// SimMoveBullet can append bullets (SimExplo), which may reallocate the
+		// vector; work on a copy and write it back so no reference dangles.
+		SimBullet b = w.bullets[i];
+		if (SimMoveBullet(w, b)) w.bullets.erase(w.bullets.begin() + i);
+		else { w.bullets[i] = b; i++; }
 	}
 	for (size_t i = 0; i < w.bodyparts.size(); i++) SimBodyPartMove(w, w.bodyparts[i]);
 	SimMoveCrateTexts(w);

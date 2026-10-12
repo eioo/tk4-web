@@ -26,6 +26,9 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 | `bun run lint:fix` | Lint and apply safe fixes |
 | `bun run fmt` | Format (`oxfmt`) |
 | `bun run fmt:check` | Check formatting without writing |
+| `bun run reference` | Build the standalone C++ oracles (`/tmp/{rotate,render,sim}_gen`) |
+| `bun run parity` | Build the oracles and diff every scenario trace + static frame (doc 13) |
+| `bun run perf` | Time the presentation-path CPU against its 60 fps budget (doc 13) |
 
 ## Needed to build & run the ORIGINAL (the "reference oracle")
 

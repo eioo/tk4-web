@@ -123,6 +123,106 @@ export function buildScript(): ReplayScript {
   };
 }
 
+function replayPlayer(
+  x: number,
+  y: number,
+  angle: number,
+  energy: number,
+  weapons: number[],
+  bullets: number[],
+): ReplayPlayer {
+  return { x, y, angle, energy, local: true, weapons, bullets };
+}
+
+function allWeapons(amount: number): number[] {
+  return emptyWeapons().map(() => amount);
+}
+
+function allBullets(amount: number): number[] {
+  return emptyBullets().map(() => amount);
+}
+
+/** Bullet-physics sweep: every weapon fires in an open arena. */
+export function buildWeaponsScenario(): ReplayScript {
+  const ticks = 900;
+  const inputs: SimInput[] = [];
+  for (let t = 0; t < ticks; t++) {
+    // Hold Shift for one tick periodically to cycle to the next weapon.
+    const keys = t > 20 && t % 60 === 0 ? Key.Shift : 0;
+    const mouseXRel = Math.floor(t / 60) % 2 === 0 ? 1 : -1;
+    inputs.push({ keys, mouseXRel, mouseButtons: MouseButton.Left });
+  }
+  return {
+    seed: 22222,
+    ticks,
+    levelName: "levs/small.lev",
+    sensitivity: 0.5,
+    mouseOwner: 0,
+    players: [replayPlayer(300, 190, 0, 100, allWeapons(1), allBullets(500))],
+    inputs,
+  };
+}
+
+/** Hostile engagement: a heavily-armed player fights the placed enemies. */
+export function buildCombatScenario(): ReplayScript {
+  const ticks = 800;
+  const weapons = emptyWeapons();
+  weapons[WeaponId.AutoRifle] = 1;
+  const bullets = emptyBullets();
+  bullets[BulletId.B12mm] = 500;
+  const inputs: SimInput[] = [];
+  for (let t = 0; t < ticks; t++) {
+    // One Shift press at t=0 selects the only owned weapon (the auto rifle).
+    // Firing east down the corridor makes the enemies hear it and shoot back.
+    const keys = t === 0 ? Key.Shift : 0;
+    inputs.push({ keys, mouseXRel: 0, mouseButtons: MouseButton.Left });
+  }
+  return {
+    seed: 33333,
+    ticks,
+    levelName: "levs/jailbreak/level1.lev",
+    sensitivity: 0.5,
+    mouseOwner: 0,
+    players: [replayPlayer(110, 135, 0, 1000, weapons, bullets)],
+    inputs,
+  };
+}
+
+/** Crate pickup: walk over a placed crate and bank the pickup text. */
+export function buildCrateScenario(): ReplayScript {
+  const ticks = 300;
+  const inputs: SimInput[] = [];
+  for (let t = 0; t < ticks; t++) {
+    inputs.push({ keys: t < 240 ? Key.Up : 0, mouseXRel: 0, mouseButtons: 0 });
+  }
+  return {
+    seed: 44444,
+    ticks,
+    levelName: "levs/jailbreak/level1.lev",
+    sensitivity: 0.5,
+    mouseOwner: 0,
+    players: [replayPlayer(280, 360, 0, 100, emptyWeapons(), emptyBullets())],
+    inputs,
+  };
+}
+
+export interface ReplayScenario {
+  /** Fixture base name (`fixtures/<name>.script` / `.trace`). */
+  name: string;
+  /** Level path relative to the reference `data/` dir. */
+  level: string;
+  /** Builds a fresh script (the registry is immutable; scripts are not). */
+  build: () => ReplayScript;
+}
+
+/** Parity scenarios, each mirrored by a C++ oracle trace (`bun run parity`). */
+export const SCENARIOS: readonly ReplayScenario[] = [
+  { name: "replay1", level: "levs/default/level1.lev", build: buildScript },
+  { name: "weapons", level: "levs/small.lev", build: buildWeaponsScenario },
+  { name: "combat", level: "levs/jailbreak/level1.lev", build: buildCombatScenario },
+  { name: "crates", level: "levs/jailbreak/level1.lev", build: buildCrateScenario },
+];
+
 /** Serialises a script to the binary `sim_gen replay` expects. */
 export function serializeScript(s: ReplayScript): Uint8Array {
   const nameBytes = new TextEncoder().encode(s.levelName);
@@ -183,8 +283,6 @@ function worldFromScript(level: Level, s: ReplayScript, fontBytes?: Uint8Array):
   }
   w.mouseSensitivity = s.sensitivity;
   w.mouseOwner = s.mouseOwner;
-  // The oracle does not model `CEnemy::SoundHeard` yet (docs/13).
-  w.hearSounds = false;
   w.players = s.players.map((rp) => {
     const p = new SimPlayer();
     p.x = rp.x;

@@ -302,6 +302,27 @@ diffs, performance budget for the presentation path.
 reports drift. Presentation path hits 60 fps at 640×480 (and higher modes).
 ⚠️ Any remaining RNG/sort divergence is documented and pinned to a fixed seed.
 
+**Status:** in. `bun run parity` (`tools/parity.ts`) is the CI-style task: it rebuilds the
+oracles, regenerates every scenario trace and static frame, runs the same inputs through the
+port, and reports the first differing byte per case (non-zero exit on drift). Scenarios live
+in `src/sim/replay.ts#SCENARIOS` — `replay1`, `weapons` (every weapon/bullet/explosion),
+`combat` (enemy death, body parts, `SoundHeard`) and `crates` (pickup) — with committed
+fixtures under `tools/reference/fixtures/`; static frames are pinned in
+`src/render/frames.ts`. The oracle now models `CEnemy::SoundHeard`, and
+`src/sim/__test__/replay.test.ts` re-checks every scenario without a compiler.
+
+The new scenarios exposed and fixed real drift: float32 table storage and literal rounding
+(`src/sim/types.ts` + several `f32(x ± f32(k))` sites in `src/sim/world.ts`), a reversed
+multi-`rand()` argument order on enemy death, a missing `walkCounter` clamp in
+`CEnemy::SoundHeard`, and a use-after-free in the oracle's bullet loop (an explosion appends
+bullets mid-iteration). All are documented in docs/13 and covered by the replay.
+
+`bun run perf` (`tools/perf.ts`) enforces the presentation CPU budget: index→RGBA conversion
+at 640×480…1280×960 and the 640×480 static compose each run far inside a 60 fps frame. The
+WebGL palette-shader presenter (docs/10, approach B) is implemented
+(`src/render/presenters/webgl.ts`) and selectable with `?presenter=webgl`; its output is
+byte-identical to the Canvas2D path, which remains the default.
+
 ---
 
 ## M10 — Polish, extras, deployment

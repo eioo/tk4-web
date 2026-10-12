@@ -6,6 +6,8 @@
  * See docs/08-game-data-tables.md.
  */
 
+import { f32 } from "../core/math";
+
 export const EBulletAmount = 12;
 export const EWeaponAmount = 13;
 
@@ -151,7 +153,7 @@ export interface BulletType {
 
 /** `CBulletBase` defaults, then the overrides from `types.cpp`. */
 function bullet(overrides: Partial<BulletType>): BulletType {
-  return {
+  const b: BulletType = {
     name: "",
     type: BulletKind.Normal,
     stop: false,
@@ -185,6 +187,13 @@ function bullet(overrides: Partial<BulletType>): BulletType {
     bounceSound: SoundEffect.NoSound,
     ...overrides,
   };
+  // The C++ oracle stores these as `float`; round them so f32 arithmetic matches.
+  b.speed = f32(b.speed);
+  b.slow = f32(b.slow);
+  b.power = f32(b.power);
+  b.pushPower = f32(b.pushPower);
+  b.lightAdd = f32(b.lightAdd);
+  return b;
 }
 
 export const BulletTypes: readonly BulletType[] = [
@@ -508,7 +517,7 @@ export const BodyPartTypes: readonly BodyPartType[] = [
     spriteOffset: 294,
     sound: SoundEffect.KickHead,
   }, // Bones
-];
+].map((b) => ({ ...b, slow: f32(b.slow), kickspeed: f32(b.kickspeed) }));
 
 /** `IEffectType` / `CEffectBase` + the effect types. */
 export interface EffectType {
@@ -860,10 +869,11 @@ export const enum CrateKind {
 
 /** `IBulletType::ApproxDistance` — the closed-form distance a bullet travels. */
 export function approxDistance(t: BulletType): number {
-  const a1 = t.speed;
+  // Mirrors the C++ `int a1, n; float an = a1 + (n-1)*slow; return (int)(n*((a1+an)/2))`.
+  const a1 = Math.trunc(t.speed);
   const n = t.time;
-  const an = a1 + (n - 1) * t.slow;
-  return Math.trunc(n * ((a1 + an) / 2));
+  const an = f32(f32(a1) + f32(f32(n - 1) * t.slow));
+  return Math.trunc(f32(f32(n) * f32(f32(f32(a1) + an) / 2)));
 }
 
 function weapon(overrides: Partial<WeaponType>): WeaponType {

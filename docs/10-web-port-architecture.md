@@ -37,6 +37,10 @@ implementations behind one `Presenter` interface:
 | **A. Canvas2D + `putImageData`** | Good (640×480 ≈ 1.2 MB/frame) | Exact | Default; simplest, works everywhere |
 | **B. WebGL palette shader** | Best | Exact | If A misses the frame budget, or for large video modes |
 
+Both are implemented (`src/render/presenters/`), and `createPresenter` picks Canvas2D by
+default or the WebGL path with `?presenter=webgl` (falling back to Canvas2D if WebGL is
+unavailable). The WebGL output is byte-identical to the `toRgba` conversion.
+
 **A (Canvas2D):** keep one `ImageData` sized to the video mode; once per display frame,
 translate the index buffer into its RGBA bytes using the global palette
 (`Uint32Array` view for speed), then `ctx.putImageData`. Cheap, no dependencies.

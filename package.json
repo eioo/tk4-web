@@ -15,6 +15,8 @@
     "fmt:check": "oxfmt --check",
     "assets": "bun run tools/build-assets.ts",
     "reference": "sh tools/build-reference.sh",
+    "parity": "bun run tools/parity.ts",
+    "perf": "bun run tools/perf.ts",
     "test": "bun test"
   },
   "devDependencies": {
