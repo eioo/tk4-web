@@ -51,7 +51,7 @@ export class NetClient {
   private ws: WebSocket | null = null;
   private readonly pending: ServerMessage[] = [];
   private pingId = 0;
-  private lastPingAt = 0;
+  private lastPingAt = Number.NEGATIVE_INFINITY;
   private readonly pingSent = new Map<number, number>();
 
   /** Open the socket. Resolves on `open`, rejects if it fails before that. */
