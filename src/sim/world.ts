@@ -25,7 +25,7 @@ import {
   vectorAngle,
   vectorLength,
 } from "../core/math";
-import { GlibcRandom } from "../core/rng";
+import { GlibcRandom, type RngState } from "../core/rng";
 import { KCharacterSpriteSize, KBlockSpriteSize } from "../data/constants";
 import { type Level, levelData, reachable } from "../data/level";
 import type { Rect } from "../render/rect";
@@ -193,6 +193,62 @@ export function makeStartPlayer(): SimPlayer {
   return p;
 }
 
+/**
+ * A rollback snapshot of everything in {@link SimWorld} that the simulation can
+ * mutate (netplay prediction, docs/multiplayer/09). Level data, config and the
+ * statistics sink are invariant and deliberately excluded.
+ */
+export interface WorldState {
+  players: SimPlayer[];
+  bullets: SimBullet[];
+  effects: SimEffect[];
+  newEffects: SimEffect[];
+  bodyparts: SimBodyPart[];
+  enemies: SimEnemy[];
+  crates: SimCrate[];
+  deadEnemies: Array<{ x: number; y: number }>;
+  mouseOwner: number;
+  mouseSensitivity: number;
+  mouseRightPressed: boolean[];
+  coopFrags: boolean;
+  networkNone: boolean;
+  steamAnimationCount: number;
+  frags: boolean;
+  crateRespawn: boolean;
+  dmCrates: boolean;
+  enemiesEnabled: boolean;
+  randomPlacePlayers: boolean;
+  dmSpeed: number;
+  dmTargetSystem: boolean;
+  enemyUidCounter: number;
+  rng: RngState;
+}
+
+/** Shallow-clones a data-class instance, copying its array fields. */
+function cloneRecord<T extends object>(o: T): T {
+  const copy = Object.create(Object.getPrototypeOf(o)) as T;
+  Object.assign(copy, o);
+  for (const key of Object.keys(o)) {
+    const value = (o as Record<string, unknown>)[key];
+    if (Array.isArray(value)) (copy as Record<string, unknown>)[key] = value.slice();
+  }
+  return copy;
+}
+
+/** Copies `src`'s fields into the existing `target` object (keeps identity). */
+function copyRecordInto<T extends object>(target: T, src: T): void {
+  for (const key of Object.keys(src)) {
+    const value = (src as Record<string, unknown>)[key];
+    (target as Record<string, unknown>)[key] = Array.isArray(value) ? value.slice() : value;
+  }
+}
+
+/** Replaces `target`'s contents with clones of `src` (keeps the array itself). */
+function replaceAll<T extends object>(target: T[], src: readonly T[]): void {
+  target.length = 0;
+  for (const item of src) target.push(cloneRecord(item));
+}
+
 export class SimWorld {
   readonly level: Level;
   readonly rng: GlibcRandom;
@@ -256,6 +312,68 @@ export class SimWorld {
   constructor(level: Level, seed: number) {
     this.level = level;
     this.rng = new GlibcRandom(seed);
+  }
+
+  /** Snapshot the mutable simulation state (rollback netcode). */
+  saveState(): WorldState {
+    return {
+      players: this.players.map(cloneRecord),
+      bullets: this.bullets.map(cloneRecord),
+      effects: this.effects.map(cloneRecord),
+      newEffects: this.newEffects.map(cloneRecord),
+      bodyparts: this.bodyparts.map(cloneRecord),
+      enemies: this.enemies.map(cloneRecord),
+      crates: this.crates.map(cloneRecord),
+      deadEnemies: this.deadEnemies.map((d) => ({ x: d.x, y: d.y })),
+      mouseOwner: this.mouseOwner,
+      mouseSensitivity: this.mouseSensitivity,
+      mouseRightPressed: this.mouseRightPressed.slice(),
+      coopFrags: this.coopFrags,
+      networkNone: this.networkNone,
+      steamAnimationCount: this.steamAnimationCount,
+      frags: this.frags,
+      crateRespawn: this.crateRespawn,
+      dmCrates: this.dmCrates,
+      enemiesEnabled: this.enemiesEnabled,
+      randomPlacePlayers: this.randomPlacePlayers,
+      dmSpeed: this.dmSpeed,
+      dmTargetSystem: this.dmTargetSystem,
+      enemyUidCounter: this.enemyUidCounter,
+      rng: this.rng.saveState(),
+    };
+  }
+
+  /**
+   * Restore a {@link saveState} snapshot. Player objects are restored in place
+   * so the session's `players`/`player` references keep working.
+   */
+  loadState(s: WorldState): void {
+    for (let i = 0; i < this.players.length && i < s.players.length; i++) {
+      copyRecordInto(this.players[i], s.players[i]);
+    }
+    replaceAll(this.bullets, s.bullets);
+    replaceAll(this.effects, s.effects);
+    replaceAll(this.newEffects, s.newEffects);
+    replaceAll(this.bodyparts, s.bodyparts);
+    replaceAll(this.enemies, s.enemies);
+    replaceAll(this.crates, s.crates);
+    this.deadEnemies.length = 0;
+    for (const d of s.deadEnemies) this.deadEnemies.push({ x: d.x, y: d.y });
+    this.mouseOwner = s.mouseOwner;
+    this.mouseSensitivity = s.mouseSensitivity;
+    this.mouseRightPressed = s.mouseRightPressed.slice();
+    this.coopFrags = s.coopFrags;
+    this.networkNone = s.networkNone;
+    this.steamAnimationCount = s.steamAnimationCount;
+    this.frags = s.frags;
+    this.crateRespawn = s.crateRespawn;
+    this.dmCrates = s.dmCrates;
+    this.enemiesEnabled = s.enemiesEnabled;
+    this.randomPlacePlayers = s.randomPlacePlayers;
+    this.dmSpeed = s.dmSpeed;
+    this.dmTargetSystem = s.dmTargetSystem;
+    this.enemyUidCounter = s.enemyUidCounter;
+    this.rng.loadState(s.rng);
   }
 
   /** `CLevelRuntimeData::NewEffect`. */

@@ -20,8 +20,10 @@ import { loadLevel, type Level } from "../data/level";
 import { loadMenuData, PaletteNo, type MenuData } from "../data/menu-data";
 import { createPalette, type Palette } from "../data/palette";
 import { NetClient, type NetStatus } from "../net/client";
+import { LockstepClient } from "../net/lockstep";
 import {
   KROOM_CODE_LENGTH,
+  KTICK_MS,
   type MatchEndReason,
   type NetSettings,
   type RoomInfo,
@@ -39,7 +41,7 @@ import { EnemyTypes, SoundEffect, type SoundEvent, WeaponId, WeaponTypes } from 
 import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
 import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
 import { GameMode } from "./game-mode";
-import { GameSession, makeStartPlayer, type ModeOptions } from "./game-session";
+import { GameSession, makeStartPlayer, type ModeOptions, type SessionState } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
 import { Options, stepResolution, KMaxLocalPlayers, TPlayerKeys } from "./options";
@@ -56,8 +58,6 @@ import { drawStatistics, givePlayerPrize, type StatisticsContext } from "./stati
 const WIDTH = 640;
 const HEIGHT = 480;
 const KLevelCompleteDelay = 940;
-/** Max server tick bundles applied per app tick while catching up online. */
-const KMaxOnlineCatchUp = 5;
 const KTimerFreq = 100;
 
 /** `CState::TMainState`. */
@@ -184,6 +184,8 @@ export class App implements MenuHost {
   private onlineShopShown = false;
   /** Host options that affect the sim, fixed for the match by `levelStart`. */
   private onlineModeOptions: ModeOptions | null = null;
+  /** Prediction + rollback driver for the current online level. */
+  private lockstep: LockstepClient<SessionState> | null = null;
 
   /** `CDynGameData::iLocalPlayer[0]` + `Statistics()` — persist across levels. */
   private player: SimPlayer | null = null;
@@ -495,6 +497,7 @@ export class App implements MenuHost {
   private exitState(): void {
     if (this.mainState === MainState.Game) {
       this.session = null;
+      this.lockstep = null;
       this.levelData.clear();
     }
   }
@@ -879,8 +882,15 @@ export class App implements MenuHost {
     this.resetKeyQueue();
     this.startGameMusic();
     this.startFadeIn(this.ingamePalette);
-    // Open the server's load barrier: it starts ticking once every seat is here.
-    if (this.online) this.net?.sendLoaded();
+    if (this.online) {
+      this.lockstep = new LockstepClient(this.session, {
+        seats: players.length,
+        localSeat: this.onlineSeat,
+        onPredict: (tick, input) => this.net?.sendInput(tick, input),
+      });
+      // Open the server's load barrier: it starts ticking once every seat is here.
+      this.net?.sendLoaded();
+    }
   }
 
   /** `CDynGameData::NextLevel` + `SetLatestLevel` at the level transition. */
@@ -916,26 +926,30 @@ export class App implements MenuHost {
     }
   }
 
-  /** Online ongoing: send our input, then apply the buffered server bundles. */
+  /**
+   * Online ongoing: predict this seat's input immediately and roll back when the
+   * server's authoritative bundles arrive (`src/net/lockstep.ts`). Our own
+   * movement never waits on the round trip; every client still converges on the
+   * same world.
+   */
   private runOngoingOnline(session: GameSession): void {
-    this.net?.sendInput(this.onlineInput());
+    const lockstep = this.lockstep;
+    if (!lockstep) return;
 
-    // Lockstep: apply the bundles the server sent, in order. Applying several
-    // per frame lets a briefly-stalled client catch up while keeping every
-    // client on the identical (tick, inputs) sequence.
-    let steps = 0;
-    for (;;) {
-      const inputs = this.net?.takeTick() ?? null;
-      if (!inputs || steps >= KMaxOnlineCatchUp) break;
-      session.step(inputs);
-      steps++;
+    const rttTicks = Math.ceil((this.net?.rttMs ?? 0) / KTICK_MS) + 2;
+    lockstep.setLead(rttTicks);
+    this.net?.maybePing();
+
+    const before = lockstep.tick;
+    lockstep.update(this.onlineInput());
+    if (lockstep.tick > before) {
+      for (const message of session.world.messages) {
+        this.messageBoard.addMessage(message, this.clock);
+      }
+      session.world.messages.length = 0;
+      this.playSounds(session.world.sounds);
+      session.world.sounds.length = 0;
     }
-    if (steps === 0) return; // no bundle yet this tick: keep waiting
-
-    for (const message of session.world.messages) this.messageBoard.addMessage(message, this.clock);
-    session.world.messages.length = 0;
-    this.playSounds(session.world.sounds);
-    session.world.sounds.length = 0;
 
     if (this.userQuit) {
       this.onlineMatchEnd("quit");
@@ -1387,6 +1401,9 @@ export class App implements MenuHost {
       case "levelStart":
         this.beginOnlineLevel(message);
         break;
+      case "tick":
+        this.lockstep?.receive(message.tick, message.inputs);
+        break;
       case "levelEnded":
         this.onlineLevelEnded(message.last);
         break;
@@ -1417,6 +1434,7 @@ export class App implements MenuHost {
     this.netWasInRoom = false;
     this.online = false;
     this.session = null;
+    this.lockstep = null;
     if (wasActive) this.messageBoard.addMessage("Connection lost.", this.clock);
     if (this.mainState === MainState.Game) this.setState(MainState.Menu, 0);
     if (wasActive || this.menuContainer.currentState() === MenuState.Lobby) {
@@ -1432,6 +1450,7 @@ export class App implements MenuHost {
     this.saveOptions();
 
     this.online = true;
+    this.lockstep = null;
     this.onlineSeat = net.seat;
     this.gameMode = new GameMode(settings.gameMode !== 0);
     this.episode = settings.episode;
@@ -1552,6 +1571,7 @@ export class App implements MenuHost {
   private returnToLobby(): void {
     this.online = false;
     this.onlineReadySent = false;
+    this.lockstep = null;
     if (
       this.mainState !== MainState.Menu ||
       this.menuContainer.currentState() !== MenuState.Lobby

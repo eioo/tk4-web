@@ -21,8 +21,8 @@ import {
 
 export type NetStatus = "idle" | "connecting" | "lobby" | "playing" | "closed";
 
-/** Cap on buffered tick bundles; a deep backlog means the client is stalled. */
-const KMAX_BUFFERED_TICKS = 64;
+/** How often to probe the round-trip time (prediction lead, docs/multiplayer/09). */
+const KPING_INTERVAL_MS = 500;
 
 /**
  * Same-origin `/ws` by default; `?net=ws://host:port/ws` overrides (debugging).
@@ -45,10 +45,14 @@ export class NetClient {
   seat = -1;
   room: RoomInfo | null = null;
   lastError: { code: string; message: string } | null = null;
+  /** Smoothed round-trip time in ms (0 until the first pong). */
+  rttMs = 0;
 
   private ws: WebSocket | null = null;
-  private readonly ticks: SimInput[][] = [];
   private readonly pending: ServerMessage[] = [];
+  private pingId = 0;
+  private lastPingAt = 0;
+  private readonly pingSent = new Map<number, number>();
 
   /** Open the socket. Resolves on `open`, rejects if it fails before that. */
   connect(url = resolveNetUrl()): Promise<void> {
@@ -113,13 +117,24 @@ export class NetClient {
   sendSettings(settings: NetSettings): void {
     this.send({ t: "settings", settings });
   }
-  sendInput(input: SimInput): void {
+  sendInput(tick: number, input: SimInput): void {
     this.send({
       t: "input",
+      tick,
       keys: input.keys,
       mouseXRel: input.mouseXRel,
       mouseButtons: input.mouseButtons,
     });
+  }
+  /** Send a ping if one is due; returns the (smoothed) RTT in ms. */
+  maybePing(now = performance.now()): number {
+    if (this.open && now - this.lastPingAt >= KPING_INTERVAL_MS) {
+      this.lastPingAt = now;
+      const id = ++this.pingId;
+      this.pingSent.set(id, now);
+      this.send({ t: "ping", id });
+    }
+    return this.rttMs;
   }
   /** Tell the server this seat has built its session and can start ticking. */
   sendLoaded(): void {
@@ -146,12 +161,7 @@ export class NetClient {
   // receive
   // ------------------------------------------------------------------
 
-  /** One buffered tick bundle's inputs, or null when none has arrived. */
-  takeTick(): SimInput[] | null {
-    return this.ticks.shift() ?? null;
-  }
-
-  /** Drain the non-tick messages received since the last call. */
+  /** Drain the messages received since the last call (ticks included). */
   drain(): ServerMessage[] {
     if (this.pending.length === 0) return [];
     return this.pending.splice(0, this.pending.length);
@@ -161,9 +171,13 @@ export class NetClient {
     const message = parseServerMessage(text);
     if (!message) return;
     this.applyState(message);
-    if (message.t === "tick") {
-      this.ticks.push(message.inputs);
-      if (this.ticks.length > KMAX_BUFFERED_TICKS) this.ticks.shift();
+    if (message.t === "pong") {
+      const sent = this.pingSent.get(message.id);
+      if (sent !== undefined) {
+        this.pingSent.delete(message.id);
+        const rtt = performance.now() - sent;
+        this.rttMs = this.rttMs > 0 ? this.rttMs * 0.8 + rtt * 0.2 : rtt;
+      }
       return;
     }
     this.pending.push(message);

@@ -51,11 +51,12 @@ describe("client messages", () => {
         targetSystem: true,
       },
     },
-    { t: "input", keys: 8, mouseXRel: 3, mouseButtons: 1 },
+    { t: "input", tick: 42, keys: 8, mouseXRel: 3, mouseButtons: 1 },
     { t: "loaded" },
     { t: "levelEnd", last: false },
     { t: "matchEnd", reason: "fragLimit" },
     { t: "ready", state },
+    { t: "ping", id: 3 },
     { t: "leave" },
   ];
 
@@ -144,6 +145,7 @@ describe("server messages", () => {
     { t: "peerLeft", seat: 1 },
     { t: "hostChanged", seat: 1 },
     { t: "matchEnded", reason: "victory" },
+    { t: "pong", id: 7 },
     { t: "left" },
   ];
 

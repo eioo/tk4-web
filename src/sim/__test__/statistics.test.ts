@@ -37,6 +37,36 @@ describe("CGameStatisticsData accounting", () => {
     expect(totalKills(stats.levelStats(0, 1))).toBe(1);
   });
 
+  test("saveState/loadState rewinds accounting (rollback netplay)", () => {
+    const stats = new GameStatistics();
+    stats.addPlayer("John");
+    stats.addPlayer("Paul");
+    stats.recording = 0;
+    stats.latest = 0;
+    stats.addEnemyKill(0, 2);
+    stats.addShot(0);
+    stats.addShot(0);
+    stats.addHit(0, 1);
+    stats.addPlayerKill(0, 1);
+    const saved = stats.saveState();
+
+    // Mutate as a wrong prediction would.
+    stats.addEnemyKill(0, 2);
+    stats.addShot(1);
+    stats.playerDied(1);
+    stats.addPlayerKill(1, 0);
+    expect(stats.currentPlayerKills(1)).toBe(1);
+    expect(stats.players[1].levelOfDeath).toBe(0);
+
+    stats.loadState(saved);
+    expect(totalKills(stats.levelStats(0, 0))).toBe(1);
+    expect(stats.levelStats(0, 0).roundsShot).toBe(2);
+    expect(stats.levelStats(0, 0).roundsHit).toBe(1);
+    expect(stats.currentPlayerKills(0)).toBe(1);
+    expect(stats.currentPlayerKills(1)).toBe(0);
+    expect(stats.players[1].levelOfDeath).toBe(-1);
+  });
+
   test("deathmatch frags count others and subtract suicides", () => {
     const stats = new GameStatistics();
     stats.addPlayer("John");

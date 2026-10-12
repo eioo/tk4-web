@@ -235,11 +235,11 @@ describe("tick master", () => {
     expect(ofType(a, "tick")).toHaveLength(1);
   });
 
-  test("uses the seat's pending input once, then zero", () => {
+  test("emits the input stamped for that tick, zero otherwise", () => {
     const { manager, advance, a, b } = startedRoom();
     a.take();
     b.take();
-    manager.handleMessage(a, { t: "input", keys: 8, mouseXRel: -3, mouseButtons: 1 });
+    manager.handleMessage(a, { t: "input", tick: 0, keys: 8, mouseXRel: -3, mouseButtons: 1 });
     advance(10);
     expect(ofType(a, "tick")[0].inputs[0]).toEqual({ keys: 8, mouseXRel: -3, mouseButtons: 1 });
     expect(ofType(a, "tick")[0].inputs[1]).toEqual({ keys: 0, mouseXRel: 0, mouseButtons: 0 });

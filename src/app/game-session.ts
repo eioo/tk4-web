@@ -24,7 +24,7 @@ import type { DrawSprites, GameDrawer } from "../render/drawer";
 import type { Framebuffer } from "../render/fb";
 import type { Rect } from "../render/rect";
 import { blackRects, playerDrawRects } from "../render/viewport";
-import type { GameStatistics } from "../sim/statistics";
+import type { GameStatistics, StatisticsState } from "../sim/statistics";
 import {
   KPlayerColor,
   KPlayerMaxEnergy,
@@ -32,11 +32,21 @@ import {
   SimPlayer,
   SimWorld,
   type SimInput,
+  type WorldState,
 } from "../sim/world";
 import type { GameMode } from "./game-mode";
 
 /** `KTimerFreq` — sim ticks per second. */
 const KTimerFreq = 100;
+
+/** Everything a rollback snapshot must restore for a {@link GameSession}. */
+export interface SessionState {
+  world: WorldState;
+  timerCounter: number;
+  completeTime: number;
+  nextLevel: number;
+  stats: StatisticsState | null;
+}
 /** `CDynGameData::KTooManyTries`. */
 const KTooManyTries = 100000;
 
@@ -250,6 +260,34 @@ export class GameSession {
     }
     this.hud.nextLevel = this.nextLevel;
     this.hud.completeTime = this.completeTime;
+  }
+
+  /** Snapshot for rollback netplay (`src/net/lockstep.ts`). */
+  saveState(): SessionState {
+    return {
+      world: this.world.saveState(),
+      timerCounter: this.timerCounter,
+      completeTime: this.completeTime,
+      nextLevel: this.nextLevel,
+      stats: this.world.stats?.saveState() ?? null,
+    };
+  }
+
+  /** Restore a {@link saveState} snapshot. */
+  loadState(state: SessionState): void {
+    this.world.loadState(state.world);
+    if (state.stats && this.world.stats) this.world.stats.loadState(state.stats);
+    this.timerCounter = state.timerCounter;
+    this.completeTime = state.completeTime;
+    this.nextLevel = state.nextLevel;
+    this.hud.nextLevel = state.nextLevel;
+    this.hud.completeTime = state.completeTime;
+  }
+
+  /** Drop per-tick output so a rollback replay does not re-emit it. */
+  discardOutput(): void {
+    this.world.messages.length = 0;
+    this.world.sounds.length = 0;
   }
 
   /** One scene per view; the arrays/RNG are shared, only the camera differs. */

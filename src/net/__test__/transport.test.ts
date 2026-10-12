@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createWebSocket } from "../../../tools/net-common";
-import { encodeMessage, type ServerMessage } from "../protocol";
+import { PROTOCOL_VERSION, encodeMessage, type ServerMessage } from "../protocol";
 import { RoomManager } from "../room";
 
 /**
@@ -76,7 +76,7 @@ describe("Bun websocket adapter", () => {
       const a = await WsClient.connect(url);
       a.send({
         t: "host",
-        v: 1,
+        v: PROTOCOL_VERSION,
         name: "John",
         settings: {
           gameMode: 0,
@@ -94,7 +94,7 @@ describe("Bun websocket adapter", () => {
       expect(manager.roomCount()).toBe(1);
 
       const b = await WsClient.connect(url);
-      b.send({ t: "join", v: 1, name: "Paul", code: hosted.code });
+      b.send({ t: "join", v: PROTOCOL_VERSION, name: "Paul", code: hosted.code });
       expect((await b.wait("joined")).seat).toBe(1);
 
       const start = await a.wait("levelStart");
@@ -124,7 +124,7 @@ describe("Bun websocket adapter", () => {
       a.ws.send("this is not json");
       a.send({
         t: "host",
-        v: 1,
+        v: PROTOCOL_VERSION,
         name: "John",
         settings: {
           gameMode: 0,

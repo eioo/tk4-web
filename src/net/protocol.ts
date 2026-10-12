@@ -8,7 +8,7 @@
  */
 
 /** Bumped on any breaking message change; mismatches are rejected. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const KROOM_CODE_LENGTH = 5;
 export const KROOM_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -98,11 +98,17 @@ export type ClientMessage =
   | { t: "host"; v: number; name: string; settings: NetSettings }
   | { t: "join"; v: number; name: string; code: string }
   | { t: "settings"; settings: NetSettings }
-  | { t: "input"; keys: number; mouseXRel: number; mouseButtons: number }
+  /**
+   * A seat's input for one server tick. The `tick` is the client's predicted
+   * tick number, so every client applies the input at the identical tick
+   * (prediction/rollback, docs/multiplayer/09).
+   */
+  | { t: "input"; tick: number; keys: number; mouseXRel: number; mouseButtons: number }
   | { t: "loaded" }
   | { t: "levelEnd"; last: boolean }
   | { t: "matchEnd"; reason: MatchEndReason }
   | { t: "ready"; state: NetPlayerState }
+  | { t: "ping"; id: number }
   | { t: "leave" };
 
 /** Server → client. */
@@ -134,6 +140,7 @@ export type ServerMessage =
   | { t: "peerLeft"; seat: number }
   | { t: "hostChanged"; seat: number }
   | { t: "matchEnded"; reason: MatchEndReason }
+  | { t: "pong"; id: number }
   | { t: "left" };
 
 /** Error codes shared so the client can map them to readable text. */
@@ -228,6 +235,7 @@ export function parseClientMessage(text: string): ClientMessage | null {
       return { t: "settings", settings: value.settings };
     case "input":
       if (
+        !isNonNegativeInt(value.tick) ||
         !isFiniteNumber(value.keys) ||
         !isFiniteNumber(value.mouseXRel) ||
         !isFiniteNumber(value.mouseButtons)
@@ -235,6 +243,7 @@ export function parseClientMessage(text: string): ClientMessage | null {
         return null;
       return {
         t: "input",
+        tick: value.tick,
         keys: value.keys,
         mouseXRel: value.mouseXRel,
         mouseButtons: value.mouseButtons,
@@ -250,6 +259,9 @@ export function parseClientMessage(text: string): ClientMessage | null {
     case "ready":
       if (!isPlayerState(value.state)) return null;
       return { t: "ready", state: value.state };
+    case "ping":
+      if (!isNonNegativeInt(value.id)) return null;
+      return { t: "ping", id: value.id };
     case "leave":
       return { t: "leave" };
     default:
@@ -347,6 +359,9 @@ export function parseServerMessage(text: string): ServerMessage | null {
     case "matchEnded":
       if (!isMatchEndReason(value.reason)) return null;
       return { t: "matchEnded", reason: value.reason };
+    case "pong":
+      if (!isNonNegativeInt(value.id)) return null;
+      return { t: "pong", id: value.id };
     case "left":
       return { t: "left" };
     default:

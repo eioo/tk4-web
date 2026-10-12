@@ -53,6 +53,8 @@ const KMAX_ROOMS = 500;
 const KLEVEL_LOAD_TIMEOUT_MS = 15000;
 /** Proceed to the next level if a client never reports ready. */
 const KREADY_TIMEOUT_MS = 60000;
+/** Accept a predicted input at most this many ticks ahead of the server. */
+const KMAX_INPUT_LOOKAHEAD = 120;
 
 function cryptoRandom32(): number {
   const buf = new Uint32Array(1);
@@ -90,13 +92,14 @@ interface Slot {
   seat: number;
   name: string;
   peer: Peer | null;
-  pendingInput: SimInput | null;
+  /** Tick-numbered inputs the client predicted, waiting to be emitted. */
+  inputs: Map<number, SimInput>;
   lastState: NetPlayerState | null;
   ready: boolean;
 }
 
 function makeSlot(seat: number, name: string, peer: Peer): Slot {
-  return { seat, name, peer, pendingInput: null, lastState: null, ready: false };
+  return { seat, name, peer, inputs: new Map(), lastState: null, ready: false };
 }
 
 export class Room {
@@ -225,7 +228,7 @@ export class Room {
     } else {
       const slot = this.seats[index];
       slot.peer = null;
-      slot.pendingInput = null;
+      slot.inputs.clear();
       this.broadcast({ t: "peerLeft", seat: slot.seat });
       // A disconnected seat no longer blocks the load barrier, and if this was
       // the last unready seat the intermission barrier resolves here.
@@ -265,11 +268,15 @@ export class Room {
   handleInput(peer: Peer, message: Extract<ClientMessage, { t: "input" }>): void {
     const slot = this.slotOf(peer);
     if (!slot || this.phase !== "playing") return;
-    slot.pendingInput = {
+    // Clients predict ahead, so an input is stamped with the tick it applies
+    // to. Already-emitted and implausibly-far ticks are ignored.
+    if (message.tick < this.tickCounter || message.tick > this.tickCounter + KMAX_INPUT_LOOKAHEAD)
+      return;
+    slot.inputs.set(message.tick, {
       keys: message.keys,
       mouseXRel: message.mouseXRel,
       mouseButtons: message.mouseButtons,
-    };
+    });
   }
 
   handleSettings(peer: Peer, message: Extract<ClientMessage, { t: "settings" }>): void {
@@ -365,7 +372,7 @@ export class Room {
     this.lastTickAt = this.manager.now();
     for (const s of this.seats) {
       s.ready = false;
-      s.pendingInput = null;
+      s.inputs.clear();
     }
     const states = first ? null : this.seats.map((s) => s.lastState);
     this.broadcast({
@@ -385,7 +392,7 @@ export class Room {
     this.loadedSeats.clear();
     for (const s of this.seats) {
       s.ready = false;
-      s.pendingInput = null;
+      s.inputs.clear();
     }
     this.broadcast({ t: "matchEnded", reason });
     this.broadcastLobby();
@@ -425,16 +432,20 @@ export class Room {
   }
 
   private emitTick(): void {
+    const tick = this.tickCounter;
     const inputs: SimInput[] = [];
     for (const slot of this.seats) {
-      if (slot.peer && slot.pendingInput) {
-        inputs.push(slot.pendingInput);
-        slot.pendingInput = null;
-      } else {
-        inputs.push(ZERO_INPUT);
+      const input = slot.peer ? slot.inputs.get(tick) : undefined;
+      inputs.push(input ?? ZERO_INPUT);
+    }
+    if (tick % 64 === 0) {
+      // Drop inputs for ticks already emitted.
+      for (const slot of this.seats) {
+        for (const key of slot.inputs.keys()) if (key < tick) slot.inputs.delete(key);
       }
     }
-    this.broadcast({ t: "tick", tick: this.tickCounter++, inputs });
+    this.tickCounter++;
+    this.broadcast({ t: "tick", tick, inputs });
   }
 
   private updateEmpty(now: number): void {
@@ -504,6 +515,11 @@ export class RoomManager {
     }
     if (message.t === "join") {
       this.handleJoin(peer, message);
+      return;
+    }
+    if (message.t === "ping") {
+      // Round-trip probe; answered outside any room so it works while loading.
+      peer.send({ t: "pong", id: message.id });
       return;
     }
 
