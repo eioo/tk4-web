@@ -15,6 +15,11 @@
 import { statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
+import type { Server } from "bun";
+
+import { RoomManager } from "../src/net/room";
+import { createWebSocket, startRoomTicker, type SocketData } from "./net-common";
+
 const DEFAULT_PORT = 4173;
 const DEFAULT_HOST = "0.0.0.0";
 const DIST = resolve(import.meta.dir, "..", "dist");
@@ -82,6 +87,10 @@ const port = parsePort();
 const hostname = flag("--host", "HOST") ?? DEFAULT_HOST;
 const BASE_HEADERS = { "X-Content-Type-Options": "nosniff" };
 
+const roomManager = new RoomManager();
+const net = createWebSocket(roomManager);
+startRoomTicker(roomManager);
+
 function cacheControl(pathname: string, ext: string): string {
   if (HASHED.test(pathname)) return "public, max-age=31536000, immutable";
   if (ext === ".html") return "no-cache";
@@ -92,7 +101,19 @@ const server = Bun.serve({
   port,
   hostname,
   development: false,
-  fetch(req: Request): Response {
+  websocket: net.websocket,
+  fetch(req: Request, srv: Server<SocketData>): Response | undefined {
+    if (req.method === "GET") {
+      let wsPath = "";
+      try {
+        wsPath = new URL(req.url).pathname;
+      } catch {
+        // Fall through to the static handler's 400.
+      }
+      // The netplay WebSocket shares the origin (and port) with the static host.
+      if (wsPath === "/ws") return net.upgrade(req, srv);
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       return new Response("Method Not Allowed", {
         status: 405,
