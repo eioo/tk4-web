@@ -8,6 +8,8 @@
  */
 
 import {
+  KDM_SPEED_MAX,
+  KDM_SPEED_MIN,
   KFRAG_LIMIT_MAX,
   KFRAG_LIMIT_MIN,
   KMAX_NAME_LENGTH,
@@ -67,6 +69,9 @@ export function normalizeSettings(raw: NetSettings): NetSettings {
     level: Math.max(0, Math.trunc(raw.level)),
     players: clamp(Math.trunc(raw.players), KMIN_PLAYERS, KMAX_PLAYERS),
     fragLimit: clamp(Math.trunc(raw.fragLimit), KFRAG_LIMIT_MIN, KFRAG_LIMIT_MAX),
+    enemies: raw.enemies === true,
+    dmSpeed: clamp(raw.dmSpeed, KDM_SPEED_MIN, KDM_SPEED_MAX),
+    targetSystem: raw.targetSystem === true,
   };
 }
 

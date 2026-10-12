@@ -35,6 +35,9 @@ interface Settings {
   level: number;     // start level (coop: episode start; DM: 0)
   players: number;   // 2..4  — number of seats to fill before auto-start
   fragLimit: number; // deathmatch only
+  enemies: boolean;      // host's "enemies on game" (sim-affecting)
+  dmSpeed: number;       // host's DM move speed, 0.5..5 (sim-affecting)
+  targetSystem: boolean; // host's DM target system (sim-affecting)
 }
 
 interface PlayerSlot {

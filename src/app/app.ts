@@ -39,7 +39,7 @@ import { EnemyTypes, SoundEffect, type SoundEvent, WeaponId, WeaponTypes } from 
 import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
 import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
 import { GameMode } from "./game-mode";
-import { GameSession, makeStartPlayer } from "./game-session";
+import { GameSession, makeStartPlayer, type ModeOptions } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
 import { Options, stepResolution, KMaxLocalPlayers, TPlayerKeys } from "./options";
@@ -180,6 +180,8 @@ export class App implements MenuHost {
   private onlineReadySent = false;
   private onlineStatsPrizeGiven = false;
   private onlineShopShown = false;
+  /** Host options that affect the sim, fixed for the match by `levelStart`. */
+  private onlineModeOptions: ModeOptions | null = null;
 
   /** `CDynGameData::iLocalPlayer[0]` + `Statistics()` — persist across levels. */
   private player: SimPlayer | null = null;
@@ -857,11 +859,13 @@ export class App implements MenuHost {
         kills: players.map(() => 0),
       },
       this.gameMode,
-      {
-        enemiesOnGame: this.opts.data.enemiesOnGame,
-        dmSpeed: this.opts.data.dmSpeed,
-        dmTargetSystem: this.opts.data.dmTargetSystem,
-      },
+      this.online && this.onlineModeOptions
+        ? this.onlineModeOptions
+        : {
+            enemiesOnGame: this.opts.data.enemiesOnGame,
+            dmSpeed: this.opts.data.dmSpeed,
+            dmTargetSystem: this.opts.data.dmTargetSystem,
+          },
       seed,
       players,
       this.stats,
@@ -1425,6 +1429,11 @@ export class App implements MenuHost {
     this.onlineSeat = net.seat;
     this.gameMode = new GameMode(settings.gameMode !== 0);
     this.episode = settings.episode;
+    this.onlineModeOptions = {
+      enemiesOnGame: settings.enemies,
+      dmSpeed: settings.dmSpeed,
+      dmTargetSystem: settings.targetSystem,
+    };
     const epi = this.opts.episode(this.episode, this.gameMode.dmEpisodes());
     this.levelsInEpisode = epi.levels.length;
     this.currentLevel = message.index;
@@ -1476,7 +1485,9 @@ export class App implements MenuHost {
     else if (this.wheelTicks < 0) buttons |= MouseButton.WheelUp;
     return {
       keys: seatKeyMask(this.heldCodes, this.opts.data.keys[0]),
-      mouseXRel: this.mouseDX,
+      // Pre-scale by this client's sensitivity; the sim runs at 1.0 online so
+      // every client computes the same angle from the same sent value.
+      mouseXRel: this.mouseDX * this.opts.data.mouseSensitivity,
       mouseButtons: buttons,
     };
   }
@@ -1548,6 +1559,9 @@ export class App implements MenuHost {
       level: data.multiPlayGameMode !== 0 ? 0 : data.multiPlayLevel,
       players: data.multiPlayers,
       fragLimit: data.dmFragLimit,
+      enemies: data.enemiesOnGame,
+      dmSpeed: data.dmSpeed,
+      targetSystem: data.dmTargetSystem,
     };
     const name = data.name[0] || "Player";
     void this.openNet()

@@ -55,7 +55,16 @@ function makeHarness(): {
   };
 }
 
-const coop: NetSettings = { gameMode: 0, episode: 1, level: 0, players: 2, fragLimit: 20 };
+const coop: NetSettings = {
+  gameMode: 0,
+  episode: 1,
+  level: 0,
+  players: 2,
+  fragLimit: 20,
+  enemies: true,
+  dmSpeed: 1,
+  targetSystem: false,
+};
 
 function host(name: string, settings: NetSettings = coop): ClientMessage {
   return { t: "host", v: PROTOCOL_VERSION, name, settings };
@@ -339,11 +348,47 @@ describe("roster changes", () => {
 describe("normalisation", () => {
   test("clamps settings", () => {
     expect(
-      normalizeSettings({ gameMode: 7, episode: -1, level: 2.9, players: 9, fragLimit: 1000 }),
-    ).toEqual({ gameMode: 0, episode: 0, level: 2, players: 4, fragLimit: 50 });
+      normalizeSettings({
+        gameMode: 7,
+        episode: -1,
+        level: 2.9,
+        players: 9,
+        fragLimit: 1000,
+        enemies: true,
+        dmSpeed: 99,
+        targetSystem: true,
+      }),
+    ).toEqual({
+      gameMode: 0,
+      episode: 0,
+      level: 2,
+      players: 4,
+      fragLimit: 50,
+      enemies: true,
+      dmSpeed: 5,
+      targetSystem: true,
+    });
     expect(
-      normalizeSettings({ gameMode: 1, episode: 0, level: 0, players: 1, fragLimit: 1 }),
-    ).toEqual({ gameMode: 1, episode: 0, level: 0, players: 2, fragLimit: 5 });
+      normalizeSettings({
+        gameMode: 1,
+        episode: 0,
+        level: 0,
+        players: 1,
+        fragLimit: 1,
+        enemies: false,
+        dmSpeed: 0,
+        targetSystem: false,
+      }),
+    ).toEqual({
+      gameMode: 1,
+      episode: 0,
+      level: 0,
+      players: 2,
+      fragLimit: 5,
+      enemies: false,
+      dmSpeed: 0.5,
+      targetSystem: false,
+    });
   });
 
   test("normalises names and codes", () => {

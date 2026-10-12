@@ -18,6 +18,9 @@ export const KMAX_NAME_LENGTH = 15;
 export const KDEFAULT_FRAG_LIMIT = 20;
 export const KFRAG_LIMIT_MIN = 5;
 export const KFRAG_LIMIT_MAX = 50;
+/** Deathmatch move-speed range (`OptionsData.dmSpeed`). */
+export const KDM_SPEED_MIN = 0.5;
+export const KDM_SPEED_MAX = 5.0;
 
 /** Reject oversized frames (a `ready` with two small arrays is well under). */
 export const KMAX_MESSAGE_BYTES = 4096;
@@ -48,6 +51,10 @@ export interface NetSettings {
   level: number;
   players: number;
   fragLimit: number;
+  /** Sim-affecting host options, broadcast so every client matches. */
+  enemies: boolean;
+  dmSpeed: number;
+  targetSystem: boolean;
 }
 
 export interface PlayerSlot {
@@ -178,7 +185,10 @@ function isSettings(value: unknown): value is NetSettings {
     isNonNegativeInt(value.episode) &&
     isNonNegativeInt(value.level) &&
     isNonNegativeInt(value.players) &&
-    isNonNegativeInt(value.fragLimit)
+    isNonNegativeInt(value.fragLimit) &&
+    typeof value.enemies === "boolean" &&
+    isFiniteNumber(value.dmSpeed) &&
+    typeof value.targetSystem === "boolean"
   );
 }
 

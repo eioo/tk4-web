@@ -186,7 +186,9 @@ export class GameSession {
       this.blackRects = [];
       this.viewSeats = [onlineSeat];
       this.world.perSeatMouse = true;
-      this.world.mouseSensitivity = 0.5;
+      // Online the client pre-scales `mouseXRel` by its own sensitivity, so
+      // every client applies the identical angle delta (sensitivity 1.0).
+      this.world.mouseSensitivity = 1.0;
     } else {
       this.drawRects = playerDrawRects(fb.width, fb.height, players.length);
       this.blackRects = blackRects(fb.width, fb.height, players.length);

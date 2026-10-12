@@ -197,7 +197,16 @@ describe("multiplayer menus", () => {
     netState.lobby = {
       code: "KQZAB",
       hostSeat: 0,
-      settings: { gameMode: 0, episode: 1, level: 0, players: 2, fragLimit: 20 },
+      settings: {
+        gameMode: 0,
+        episode: 1,
+        level: 0,
+        players: 2,
+        fragLimit: 20,
+        enemies: true,
+        dmSpeed: 1,
+        targetSystem: false,
+      },
       players: [
         { seat: 0, name: "John", connected: true },
         { seat: 1, name: "Paul", connected: true },

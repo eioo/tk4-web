@@ -78,7 +78,16 @@ describe("Bun websocket adapter", () => {
         t: "host",
         v: 1,
         name: "John",
-        settings: { gameMode: 0, episode: 1, level: 0, players: 2, fragLimit: 20 },
+        settings: {
+          gameMode: 0,
+          episode: 1,
+          level: 0,
+          players: 2,
+          fragLimit: 20,
+          enemies: true,
+          dmSpeed: 1,
+          targetSystem: false,
+        },
       });
       const hosted = await a.wait("hosted");
       expect(hosted.seat).toBe(0);
@@ -117,7 +126,16 @@ describe("Bun websocket adapter", () => {
         t: "host",
         v: 1,
         name: "John",
-        settings: { gameMode: 0, episode: 1, level: 0, players: 2, fragLimit: 20 },
+        settings: {
+          gameMode: 0,
+          episode: 1,
+          level: 0,
+          players: 2,
+          fragLimit: 20,
+          enemies: true,
+          dmSpeed: 1,
+          targetSystem: false,
+        },
       });
       expect((await a.wait("hosted")).seat).toBe(0);
       expect(a.ws.readyState).toBe(WebSocket.OPEN);
@@ -132,7 +150,16 @@ describe("Bun websocket adapter", () => {
         t: "host",
         v: 999,
         name: "John",
-        settings: { gameMode: 0, episode: 1, level: 0, players: 2, fragLimit: 20 },
+        settings: {
+          gameMode: 0,
+          episode: 1,
+          level: 0,
+          players: 2,
+          fragLimit: 20,
+          enemies: true,
+          dmSpeed: 1,
+          targetSystem: false,
+        },
       });
       expect((await a.wait("error")).code).toBe("bad-version");
       a.ws.close();

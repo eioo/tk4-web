@@ -31,7 +31,7 @@ deterministic, the worlds stay identical without ever exchanging world state.
 | Thing | Authority |
 | --- | --- |
 | Room membership, codes, roster, seat order | Server |
-| Settings (game mode, episode, level, player count, frag limit) | Host → server |
+| Settings (game mode, episode, level, player count, frag limit, enemies, DM speed, target system) | Host → server |
 | Tick clock | Server |
 | Per-seat input | That seat's client (relayed by server) |
 | Level/episode progression barriers | Server |
@@ -74,6 +74,14 @@ single-player (the parity harness proves it); netplay must not break them:
    constants (`FragText`, enemy gate, etc.) match by construction.
 8. **Identical inputs.** The server broadcasts one identical `inputs[]` vector to
    every client; no client ever substitutes its local input for a tick.
+9. **Identical sim-affecting host options.** `enemiesOnGame`, `dmSpeed` and
+   `dmTargetSystem` change the sim (enemy spawning, DM move speed, target
+   system), so the host's values are broadcast in `Settings` and override each
+   client's local options for the match.
+10. **Identical sensitivity handling.** Each client pre-scales its `mouseXRel` by
+    its own `mouseSensitivity` before sending, and online sessions run the sim at
+    `mouseSensitivity = 1.0`, so the same sent value yields the same angle on
+    every client (per-client feel is preserved, determinism is not lost).
 
 ### 4.1 Per-seat mouse (netplay-only sim extension)
 
