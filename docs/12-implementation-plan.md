@@ -208,13 +208,12 @@ the shop by `src/app/__test__/shop.test.ts`, the statistics/prize maths by
 signature by `src/data/__test__/ingame-data.test.ts`.
 
 Deferred until later milestones (planned, not dropped): the level-select/
-game-mode **multiplay** wiring and **deathmatch** frags/scoring. The original's
-multiplayer is network play (plus local split-screen for up to four players,
-`CDynGameData::SetLocalPlayers`); the plan is to add split-screen and a
-WebRTC/WebSocket netplay layer in a later pass, so for now the game-mode/
-level-select menus are present but only cooperative single-player is
-playable. Kill/suicide frag texts (per-level `FragText`/`SuicideText`) are
-likewise unused until deathmatch lands.
+game-mode **multiplay** wiring, **local split-screen** (M11), **deathmatch**
+frags/scoring (M12) and **netplay** (M13). The original's multiplayer is local
+split-screen for up to four players (`CDynGameData::SetLocalPlayers`) plus a
+compiled-out network layer; for now the game-mode/level-select menus are present
+but only cooperative single-player is playable. Kill/suicide frag texts
+(per-level `FragText`/`SuicideText`) are likewise unused until deathmatch lands.
 
 ---
 
@@ -342,23 +341,79 @@ Loading and error surfacing are in: `index.html` carries a boot overlay that `ma
 dismisses once the first frame is ready, showing a live file count while assets load, and
 replaces it with the failure message (plus a reload button) if boot throws — so a slow
 connection or a missing `public/assets/` build no longer shows a blank canvas. The
-top-level `README.md` now documents the real commands and status. Still open for M10:
-optional gamepad and optional non-parity save (campaign progress).
+top-level `README.md` now documents the real commands and status.
+
+The optional extras (gamepad, non-parity campaign save) are **skipped by request**; the
+original has no joystick code, and multiplayer (below) is the next workstream.
 
 ---
 
-## Deferred — Multiplayer (split-screen + netplay)
+## M11 — Local split-screen (1–4 players)
 
-🎯 Local **split-screen** for up to four players and a **WebRTC/WebSocket**
-netplay layer (lobby + player state sync), which in turn brings back
-**deathmatch** frags/scoring and the per-level `FragText`/`SuicideText`
-messages.
+🎯 N players share one keyboard, one mouse owned by a selectable seat, and the screen
+splits into 1/2/3/4 viewports, each with its own camera and HUD.
 
-The pieces are already in place to build on: the game-mode/level-select menu
-trees, `IGameMode` variants (`GameMode.frags()`/`startFromAnyLevel()`, …), the
-per-player HUD/minimap and the split-screen draw-rect plumbing, and a
-simulation that already carries non-local players (static until then). Postponed
-by request; the single-player cooperative flow is complete without it.
+- **M11a per-seat input**: `SimInput` becomes per-player (four `CKeys` binding sets plus
+  the single mouse owner), ported from `CPlayer::CheckKeys`,
+  `CDynGameData::UpdateMouseOwner` and the F4 mouse-cycle in `CGameSubStateOngoing`.
+- **M11b viewports**: port `CDynGameData::GraphicsModeChanged` — the `iDrawRects` /
+  `iBlackRects` tables for 1–4 players — fill the black (letterbox) rects, loop views in
+  seat order and give each seat its own `drawRect` (per-view `initScr`/`moveScr`).
+- **M11c session**: `CGameSystem::Init` spawns `iPlayers` players
+  (`PlacePlayersForLevel`), copies per-seat keys/names, assigns colors (`KPlayerColor`)
+  and registers statistics.
+- **M11d wiring**: `ExecMultiplay` starts the chosen player count; renderer uses
+  per-player colors (currently every player is drawn `KPlayerColor0`).
+
+✅ `bun run dev` shows 2–4 viewports; each seat moves and shoots independently; F4 moves
+the mouse; the global overlays (kills / time / map / message board) are drawn once, not
+per view.
+
+**Status:** in. Per-seat input (`SimWorld::tick` now takes a `SimInput[]`, one row per
+seat, built from `OptionsData.keys[seat]` in `App.gameInput`), the
+`CDynGameData::GraphicsModeChanged` viewport/letterbox tables (`src/render/viewport.ts`,
+unit-tested), multi-player session setup (`PlacePlayersForLevel`, per-seat keys, names,
+`KPlayerColor` colours and statistics) and the split draw loop
+(`drawWorldFrame` per view → `drawPlayerHud` per view → `drawGlobalHud` once) are done.
+`App.execMultiplay` starts `iPlayers` seats; F4 cycles the mouse owner
+(`OptionsData.mouseMode`, 0..N). Verified in the browser for 2 and 3 players: independent
+cameras and input, correct per-player colours, and the 3-player letterbox rects. Any F4
+mouse mode is applied through `GameSession::setMouseOwner`.
+
+Caveats: the replay/oracle script still feeds one input row per tick to every local seat
+(no per-seat trace, so no split-screen parity scenario yet), and the shop/statistics flow
+still operates on seat 0. Both are noted in docs/13.
+
+## M12 — Deathmatch
+
+🎯 The second `IGameMode`: frags, respawn, DM crates and the kill messages.
+
+- Load `FragText`/`SuicideText` from the per-level config; wire
+  `BulletPlayerKill`/`RandomKillText`/`RandomSuicideText` (`CPlayer`, `CIngameData`).
+- `IGameMode::CharacterDied` respawn (teleport + `RandomPlace` + shield / energy / DM
+  speed / target system) after `KDeadAnimationDelay`; `TotalPlayerKills` suicide
+  accounting (self-kills subtract).
+- DM options already staged (`dmSpeed`, `dmTargetSystem`, `iEnemiesOnGame`); `DMCrates` /
+  `CrateRespawn`; DM statistics (`Frags` line, no time bonus).
+- Level rotation: DM `GameOver()` / objective — one level until the player quits, matching
+  the original.
+
+✅ A deathmatch round shows frags, respawns players, applies the DM options and prints kill
+texts; the replay oracle gains a DM death/respawn scenario.
+
+## M13 — Netplay (WebRTC/WebSocket)
+
+🎯 Greenfield peer sync built on the split-screen model. The original's network layer is
+compiled-out dead code with empty `Send`/`Available` (docs/13), so there is no wire format
+worth emulating; only its ownership split is a useful hint (server owns level, enemies,
+crates and game data; each client streams its own player transform; damage is applied by
+the damage-authority side). Design and implement after M11/M12.
+
+The pieces already in place to build on: the game-mode/level-select menu trees, the
+`GameMode` variant (`frags()`/`startFromAnyLevel()`/`dmEpisodes()`, …), the per-player
+HUD/minimap, the split-screen draw-rect plumbing, and a simulation that already carries
+non-local players (static until then). Progress is tracked above; the single-player
+cooperative flow is complete without it.
 
 ---
 

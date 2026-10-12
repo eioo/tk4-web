@@ -32,7 +32,7 @@ import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
 import { GameSession, makeStartPlayer } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
-import { Options, stepResolution, TPlayerKeys } from "./options";
+import { Options, stepResolution, KMaxLocalPlayers, TPlayerKeys } from "./options";
 import {
   applyOptions,
   browserStorage,
@@ -178,6 +178,8 @@ export class App implements MenuHost {
 
   /** `CDynGameData::iLocalPlayer[0]` + `Statistics()` — persist across levels. */
   private player: SimPlayer | null = null;
+  /** All local seats (`iLocalPlayer`), one per split-screen player. */
+  private players: SimPlayer[] = [];
   private stats = new GameStatistics();
   private completeTime = 0;
   private timeBonus = 0;
@@ -596,7 +598,12 @@ export class App implements MenuHost {
   // ------------------------------------------------------------------
 
   /** `CGameSystem::Init` — kicks off an async level preload, then fades out. */
-  private startGame(mode: GameMode, episode: number, startLevel: number): void {
+  private startGame(
+    mode: GameMode,
+    episode: number,
+    startLevel: number,
+    playerCount: number,
+  ): void {
     this.gameMode = mode;
     this.episode = episode;
     const epi = this.opts.episode(episode, mode.dmEpisodes());
@@ -612,9 +619,12 @@ export class App implements MenuHost {
     this.currentLevel = startLevel;
     this.userQuit = false;
     this.gameOver = false;
-    this.player = makeStartPlayer();
+    const count = Math.max(1, Math.min(KMaxLocalPlayers, playerCount));
+    this.players = Array.from({ length: count }, () => makeStartPlayer());
+    this.player = this.players[0];
     this.stats = new GameStatistics();
-    this.stats.addPlayer(this.opts.data.name[0] || "Unknown soldier");
+    for (let i = 0; i < count; i++)
+      this.stats.addPlayer(this.opts.data.name[i] || "Unknown soldier");
     this.stats.recording = startLevel;
     this.shop = new DynShopData();
     this.shopRng = new GlibcRandom((Date.now() / 1000) >>> 0);
@@ -771,10 +781,11 @@ export class App implements MenuHost {
 
   private enterOngoing(): void {
     const level = this.levelFor(this.currentLevel);
-    const player = this.player;
-    if (!level || !player) return;
+    const players = this.players;
+    if (!level || players.length === 0) return;
     const f = this.fontSet.get(GameFont.SmallFont);
     this.stats.recording = this.currentLevel;
+    const names = players.map((_, i) => this.opts.data.name[i] || "Unknown soldier");
     this.session = new GameSession(
       level,
       toDrawSprites(this.ingame),
@@ -782,7 +793,6 @@ export class App implements MenuHost {
       this.drawer,
       this.fb,
       this.dark,
-      this.fb.rect(),
       {
         font: f.font,
         oneIsZero: f.oneIsZero,
@@ -799,13 +809,14 @@ export class App implements MenuHost {
         hidePlayersFromMap: this.gameMode.hidePlayersFromMap(),
         drawEnemiesOnMap: !this.gameMode.hidePlayersFromMap(),
         reachableOnMap: false,
-        names: [this.opts.data.name[0]],
-        kills: [0],
+        names,
+        kills: players.map(() => 0),
       },
       (Date.now() / 1000) >>> 0,
-      player,
+      players,
       this.stats,
     );
+    this.session.setMouseOwner(this.opts.data.mouseMode - 1);
     this.messageBoard.setDrawOffset(this.gameMode.frags() ? 16 : 0);
     this.resetKeyQueue();
     this.startGameMusic();
@@ -1243,7 +1254,7 @@ export class App implements MenuHost {
   }
   execSingleGame(episode: number): void {
     this.saveOptions();
-    this.startGame(new GameMode(false), episode, 0);
+    this.startGame(new GameMode(false), episode, 0, 1);
   }
   execMultiplay(): void {
     const opt = this.opts.data;
@@ -1252,6 +1263,7 @@ export class App implements MenuHost {
       new GameMode(opt.multiPlayGameMode !== 0),
       opt.multiPlayEpisode,
       opt.multiPlayLevel,
+      opt.multiPlayers,
     );
   }
   rand(maxExclusive: number): number {
@@ -1370,6 +1382,14 @@ export class App implements MenuHost {
         case "F6":
           this.ongoingDrawFrames = !this.ongoingDrawFrames;
           break;
+        case "F4": {
+          // `CGameSubStateOngoing`: ++iMouseMode %= LocalPlayers().size()+1.
+          const count = this.players.length;
+          this.opts.data.mouseMode = (this.opts.data.mouseMode + 1) % (count + 1);
+          this.session?.setMouseOwner(this.opts.data.mouseMode - 1);
+          this.messageBoard.addMessage(`Mouse mode: ${this.opts.mouseModeText()}`, this.clock);
+          break;
+        }
         case "PageUp":
         case "PageDown": {
           const world = this.session?.world;
@@ -1396,13 +1416,21 @@ export class App implements MenuHost {
     }
   }
 
-  private gameInput(): SimInput {
+  private gameInput(): SimInput[] {
     let buttons = 0;
     if (this.rawButtons & MouseButton.Left) buttons |= MouseButton.Left;
     if (this.rawButtons & MouseButton.Right) buttons |= MouseButton.Right;
     if (this.wheelTicks > 0) buttons |= MouseButton.WheelDown;
     else if (this.wheelTicks < 0) buttons |= MouseButton.WheelUp;
-    return { keys: keyMask(this.heldCodes), mouseXRel: this.mouseDX, mouseButtons: buttons };
+    const inputs: SimInput[] = [];
+    for (let i = 0; i < this.players.length; i++) {
+      inputs.push({
+        keys: seatKeyMask(this.heldCodes, this.opts.data.keys[i]),
+        mouseXRel: this.mouseDX,
+        mouseButtons: buttons,
+      });
+    }
+    return inputs;
   }
 
   // ------------------------------------------------------------------
@@ -1462,16 +1490,27 @@ export class App implements MenuHost {
   }
 }
 
-function keyMask(held: ReadonlySet<string>): number {
+/**
+ * `CPlayer::CheckKeys` reads one seat's `CKeys` bindings. Map the held
+ * `KeyboardEvent.code`s to `SDLKey`s and set the matching `Key` bits for that
+ * seat (`OptionsData.keys[seat]`).
+ */
+function seatKeyMask(held: ReadonlySet<string>, bindings: readonly number[] | undefined): number {
+  if (!bindings) return 0;
   let k = 0;
-  if (held.has("KeyW") || held.has("ArrowUp")) k |= Key.Up;
-  if (held.has("KeyS") || held.has("ArrowDown")) k |= Key.Down;
-  if (held.has("ArrowLeft")) k |= Key.Left;
-  if (held.has("ArrowRight")) k |= Key.Right;
-  if (held.has("KeyA")) k |= Key.LeftStrafe;
-  if (held.has("KeyD")) k |= Key.RightStrafe;
-  if (held.has("Space")) k |= Key.Shoot;
-  if (held.has("ShiftLeft") || held.has("ShiftRight")) k |= Key.Shift;
+  for (const code of held) {
+    const sym = codeToSdlKey(code);
+    if (sym === SDLK.UNKNOWN) continue;
+    if (bindings[TPlayerKeys.LEFT] === sym) k |= Key.Left;
+    if (bindings[TPlayerKeys.RIGHT] === sym) k |= Key.Right;
+    if (bindings[TPlayerKeys.UP] === sym) k |= Key.Up;
+    if (bindings[TPlayerKeys.DOWN] === sym) k |= Key.Down;
+    if (bindings[TPlayerKeys.SHOOT] === sym) k |= Key.Shoot;
+    if (bindings[TPlayerKeys.SHIFT] === sym) k |= Key.Shift;
+    if (bindings[TPlayerKeys.STRAFE] === sym) k |= Key.Strafe;
+    if (bindings[TPlayerKeys.LSTRAFE] === sym) k |= Key.LeftStrafe;
+    if (bindings[TPlayerKeys.RSTRAFE] === sym) k |= Key.RightStrafe;
+  }
   return k;
 }
 

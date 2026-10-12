@@ -292,7 +292,8 @@ function worldFromScript(level: Level, s: ReplayScript, fontBytes?: Uint8Array):
     p.local = rp.local;
     p.weapons = rp.weapons.slice();
     p.bullets = rp.bullets.slice();
-    if (p.local) w.initScr(p, DRAW_RECT);
+    p.drawRect = DRAW_RECT;
+    if (p.local) w.initScr(p);
     return p;
   });
   w.spawnEntities();
@@ -319,8 +320,22 @@ export function runReplay(
     parts.push(u[0], u[1], u[2], u[3]);
   };
 
+  const seatInputs: SimInput[] = s.players.map(() => ({
+    keys: 0,
+    mouseXRel: 0,
+    mouseButtons: 0,
+  }));
+
   for (let t = 0; t < s.ticks; t++) {
-    w.tick(s.inputs[t], DRAW_RECT);
+    // The script stores one input row per tick; the oracle (and the old port)
+    // feed it to every local seat. Keep that here so traces stay identical.
+    const row = s.inputs[t];
+    for (const si of seatInputs) {
+      si.keys = row.keys;
+      si.mouseXRel = row.mouseXRel;
+      si.mouseButtons = row.mouseButtons;
+    }
+    w.tick(seatInputs);
     pushI32(t);
     pushI32(w.players.length);
     for (const p of w.players) {

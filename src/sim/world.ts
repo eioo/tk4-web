@@ -29,7 +29,7 @@ import { GlibcRandom } from "../core/rng";
 import { KCharacterSpriteSize, KBlockSpriteSize } from "../data/constants";
 import { type Level, levelData, reachable } from "../data/level";
 import type { Rect } from "../render/rect";
-import { idiv, rectHeight, rectWidth } from "../render/rect";
+import { idiv, makeRect, rectHeight, rectWidth } from "../render/rect";
 import { SimBodyPart, SimCrate, SimEffect, SimEnemy, crateText } from "./entities";
 import { simCollision, simDustBlock, simVisibilityCheck } from "./level-physics";
 import type { GameStatistics } from "./statistics";
@@ -69,6 +69,17 @@ const KCrateWakeupDelay = 1250;
 /** `KPlayerMaxEnergy` / `KShieldEnergyAmount` (CPlayer.h). */
 export const KPlayerMaxEnergy = 100;
 export const KShieldEnergyAmount = 10;
+/** `KPlayerColor` (defines.h) — per-seat recolour bases. */
+export const KPlayerColor: readonly number[] = [
+  16 * 3,
+  16 * 9,
+  16 * 10,
+  16 * 11,
+  16 * 1,
+  16 * 2,
+  16 * 4,
+  16 * 5,
+];
 /** `KSteamRates[8]` (CDynGameData.cpp). */
 const KSteamRates = [30, 20, 10, 10, 8, 8, 6, 6];
 
@@ -96,6 +107,9 @@ export interface SimInput {
   mouseXRel: number;
   mouseButtons: number;
 }
+
+/** No input for a seat (used for non-local seats in traces). */
+export const EMPTY_INPUT: SimInput = { keys: 0, mouseXRel: 0, mouseButtons: 0 };
 
 const enum Direction {
   Nowhere = -1,
@@ -154,8 +168,13 @@ export class SimPlayer {
   cash = 0;
   targetSystem = false;
   local = true;
-  /** `CPlayer::iColor` — `KPlayerColor[i]`, used for the minimap dot. */
+  /** `CPlayer::iColor` — `KPlayerColor[i]`, used for the recolour and minimap dot. */
   color = 16 * 3;
+  /**
+   * This seat's viewport (`CDynGameData::PlayerDrawRect`). Set once per level by
+   * the session; the simulation uses it for movement, camera and steam culling.
+   */
+  drawRect: Rect = makeRect(0, 0, 0, 0);
 
   spriteAngle(): number {
     return Math.trunc(this.angle / 4.5);
@@ -908,7 +927,7 @@ export class SimWorld {
     }
   }
 
-  private playerCheckKeys(index: number, p: SimPlayer, input: SimInput, drawRect: Rect): void {
+  private playerCheckKeys(index: number, p: SimPlayer, input: SimInput): void {
     let walkChk = 0;
     let speedi = 0;
     let strafe = Direction.Nowhere;
@@ -971,7 +990,7 @@ export class SimWorld {
     }
 
     fAngle = angleFix(fAngle);
-    if (speedi !== 0) this.playerMove(p, fAngle, speedi, drawRect);
+    if (speedi !== 0) this.playerMove(p, fAngle, speedi, p.drawRect);
 
     if (walkChk && p.walk === 0) p.walk = 1;
     if (!walkChk) p.walk = 0;
@@ -1063,7 +1082,8 @@ export class SimWorld {
     }
   }
 
-  private moveScr(p: SimPlayer, drawRect: Rect): void {
+  private moveScr(p: SimPlayer): void {
+    const drawRect = p.drawRect;
     const halfW = idiv(rectWidth(drawRect), 2);
     const halfH = idiv(rectHeight(drawRect), 2);
     const cs = cose(Math.trunc(p.angle));
@@ -1088,9 +1108,10 @@ export class SimWorld {
       p.screenY = Math.trunc(f32(p.y - halfH));
   }
 
-  initScr(p: SimPlayer, drawRect: Rect): void {
-    p.screenX = Math.trunc(p.x - idiv(rectWidth(drawRect), 2));
-    p.screenY = Math.trunc(p.y - idiv(rectHeight(drawRect), 2));
+  /** `CPlayer::InitScr` — centre this seat's camera on its viewport. */
+  initScr(p: SimPlayer): void {
+    p.screenX = Math.trunc(p.x - idiv(rectWidth(p.drawRect), 2));
+    p.screenY = Math.trunc(p.y - idiv(rectHeight(p.drawRect), 2));
   }
 
   // ---------------------------------------------------------------------
@@ -1419,14 +1440,14 @@ export class SimWorld {
   }
 
   /** `CDynGameData::ShowSteam`. */
-  private showSteam(drawRect: Rect): void {
+  private showSteam(): void {
     const buffer = 100;
-    const halfW = idiv(rectWidth(drawRect), 2);
-    const halfH = idiv(rectHeight(drawRect), 2);
     for (const s of this.level.steams) {
       let du = false;
       for (const p of this.players) {
         if (!p.local) continue;
+        const halfW = idiv(rectWidth(p.drawRect), 2);
+        const halfH = idiv(rectHeight(p.drawRect), 2);
         const l = Math.trunc(p.x - halfW - buffer);
         const t = Math.trunc(p.y - halfH - buffer);
         const r = Math.trunc(p.x + halfW + buffer);
@@ -1803,21 +1824,26 @@ export class SimWorld {
     c.textAngle = Math.trunc(getAngle(tx, ty, bx, by));
   }
 
-  /** One 100 Hz tick — mirrors the inner loop of `CGameSubStateOngoing::RunFrame`. */
-  tick(input: SimInput, drawRect: Rect): void {
+  /**
+   * One 100 Hz tick — mirrors the inner loop of `CGameSubStateOngoing::RunFrame`.
+   * `inputs[i]` is seat `i`'s keyboard (and, for `mouseOwner`, mouse) state.
+   */
+  tick(inputs: readonly SimInput[]): void {
     // 1. CheckUserInput — player keys, then the mouse owner.
-    for (let i = 0; i < this.players.length; i++)
-      if (this.players[i].local && !this.players[i].dead)
-        this.playerCheckKeys(i, this.players[i], input, drawRect);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      if (p.local && !p.dead) this.playerCheckKeys(i, p, inputs[i] ?? EMPTY_INPUT);
+    }
 
     if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
-      let temp = f32(f32(input.mouseXRel) * this.mouseSensitivity);
+      const mouse = inputs[this.mouseOwner] ?? EMPTY_INPUT;
+      let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
       if (temp < -15) temp = -15;
       if (temp > 15) temp = 15;
       this.rotate(this.players[this.mouseOwner], temp);
-      if (input.mouseButtons & MouseButton.WheelDown)
+      if (mouse.mouseButtons & MouseButton.WheelDown)
         this.changeWeapon(this.players[this.mouseOwner], false);
-      if (input.mouseButtons & MouseButton.WheelUp)
+      if (mouse.mouseButtons & MouseButton.WheelUp)
         this.changeWeapon(this.players[this.mouseOwner], true);
     }
 
@@ -1828,7 +1854,7 @@ export class SimWorld {
     for (const p of this.players) {
       if (!p.local) continue;
       if (p.pushPower > 0) {
-        this.playerMove(p, p.pushAngle, p.pushPower, drawRect);
+        this.playerMove(p, p.pushAngle, p.pushPower, p.drawRect);
         p.pushPower = f32(p.pushPower - f32(0.075));
       }
     }
@@ -1842,7 +1868,7 @@ export class SimWorld {
     // 6. MoveScr + LoadWeapons (local players)
     for (const p of this.players)
       if (p.local) {
-        this.moveScr(p, drawRect);
+        this.moveScr(p);
         this.loadWeapons(p);
       }
 
@@ -1856,7 +1882,7 @@ export class SimWorld {
     for (const p of this.players) if (p.local && p.hit > 0) p.hit--;
 
     // 10. ShowSteam
-    this.showSteam(drawRect);
+    this.showSteam();
 
     // 11. RollEffects
     this.rollEffects();

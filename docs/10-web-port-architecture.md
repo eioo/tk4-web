@@ -212,7 +212,10 @@ black screen.
 
 ## Explicit non-goals / stubs
 
-- Playable network multiplayer (original is non-functional anyway). Drop it.
+- Playable network multiplayer. The original's own network code is non-functional
+  (compiled-out dead code), so this is **greenfield**, not a port: the plan (M13, doc 12)
+  is a WebRTC/WebSocket peer layer with a small authority split, built on the local
+  split-screen model (M11).
 - Online version checker (HTTP to `www.errorfree.eu.org`). Drop or stub.
 - Level editor. Drop (formats are documented instead).
 - DirectX/Win32/GTK specifics. Drop.

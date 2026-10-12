@@ -131,10 +131,14 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   (`ActorScene.renderRng`, seeded from the same value); spot flicker is therefore
   cosmetic-only and does not perturb the sim. Parity tests check the sim trace and the
   light rasteriser independently.
-- **Non-local players are static.** In the M3 replay a non-local player receives damage
-  and push but is never moved (the original would move it on its own client). Fine for
-  single-machine traces; multiplayer (split-screen and WebRTC/WebSocket netplay) is
-  deferred to a later milestone.
+- **Local split-screen is in (M11); the trace still has one input row.** `SimWorld::tick`
+  now takes one `SimInput` per seat and the engine renders 1–4 viewports, but the M3
+  replay/oracle script still stores a single input row per tick that is fed to every local
+  seat, and the replay fixture keeps its second player non-local (never moved). There is
+  therefore no per-seat parity trace yet; adding one means extending the script format and
+  `simreference.h` together. Non-local players remain static on the client side by design
+  until netplay (M13); the original's network code is compiled-out dead code
+  (`network.cpp` `Send`/`Available` are empty), so there is no wire format to match.
 - **`CEnemy::SoundHeard` is modelled.** The oracle now mirrors `CEnemy::SoundHeard`
   (positional samples make nearby hostile enemies with line of sight start an assault),
   and the `combat` scenario exercises it; `SimWorld.hearSounds` is on for both sides.

@@ -989,9 +989,6 @@ export function drawStaticFrame(scene: StaticScene): void {
   drawWalls(scene);
 }
 
-/** `KPlayerColor[0]` — the recolour base for the first player. */
-export const KPlayerColor0 = 16 * 3;
-
 export interface ActorScene extends StaticScene {
   players: SimPlayer[];
   bullets: SimBullet[];
@@ -1113,7 +1110,7 @@ export function drawPlayers(scene: ActorScene, live: boolean, screenHeight: numb
         Math.trunc(drawRect.top + p.y - screenPos.y),
         p.spriteAngle(),
         p.anim,
-        KPlayerColor0,
+        p.color,
         sprites.rambo[spr],
         fb,
         drawRect,
@@ -1402,23 +1399,28 @@ export function drawSpots(scene: ActorScene, screenHeight: number): void {
 }
 
 /**
- * The HUD portion of `CGameDrawManager::DrawFrame` (everything the original
- * draws after the walls, inside and after the local-player loop).
+ * One seat's HUD (the part of `DrawFrame` drawn *inside* the local-player loop):
+ * hit charges, target system, energy bar and the info boxes.
  */
-export function drawHudFrame(scene: ActorScene): void {
+export function drawPlayerHud(scene: ActorScene, plr: SimPlayer): void {
   const hud = scene.hud;
   if (!hud) return;
-  const { level, drawer, fb, drawRect, screenPos, sprites, players, enemies, crates, deadEnemies } =
-    scene;
+  const { level, drawer, fb, drawRect, screenPos, sprites } = scene;
+  drawHits(fb, plr, drawRect);
+  drawTargets(level, sprites, drawer, fb, drawRect, screenPos, plr);
+  drawEnergies(fb, plr, drawRect);
+  drawInfos(fb, plr, drawRect, hud);
+}
 
-  for (const plr of players) {
-    if (!plr.local) continue;
-    drawHits(fb, plr, drawRect);
-    drawTargets(level, sprites, drawer, fb, drawRect, screenPos, plr);
-    drawEnergies(fb, plr, drawRect);
-    drawInfos(fb, plr, drawRect, hud);
-  }
-
+/**
+ * The overlays `CGameDrawManager::DrawFrame` draws *once after* the local-player
+ * loop, across the whole screen: kills, crate texts, the minimap, fps, the
+ * level clock and the "level complete" banner.
+ */
+export function drawGlobalHud(scene: ActorScene): void {
+  const hud = scene.hud;
+  if (!hud) return;
+  const { level, drawer, fb, players, enemies, deadEnemies, crates } = scene;
   if (hud.frags) drawKills(fb, hud);
   drawCrateTexts(fb, crates, hud);
   if (hud.showMap) drawMap(level, drawer, fb, enemies, deadEnemies, players, hud);
@@ -1428,12 +1430,26 @@ export function drawHudFrame(scene: ActorScene): void {
 }
 
 /**
- * Composes a full in-game frame in the original `DrawFrame` order: floor,
- * dead players, low effects, body parts, character shadows, crates, bullets,
- * live enemies, players, fire lights, block shadows, high effects, spot
- * lights, camera cone and walls — then the HUD (when `scene.hud` is set).
+ * The HUD portion of `CGameDrawManager::DrawFrame` for a single view: every
+ * local seat's HUD followed by the global overlays. Split-screen uses
+ * {@link drawPlayerHud} per view and {@link drawGlobalHud} once instead.
  */
-export function drawFrame(scene: ActorScene, screenHeight: number): void {
+export function drawHudFrame(scene: ActorScene): void {
+  if (!scene.hud) return;
+  for (const plr of scene.players) {
+    if (!plr.local) continue;
+    drawPlayerHud(scene, plr);
+  }
+  drawGlobalHud(scene);
+}
+
+/**
+ * The world portion of `DrawFrame` (everything before the HUD): floor, dead
+ * players, low effects, body parts, character shadows, crates, bullets, live
+ * enemies, players, fire lights, block shadows, high effects, spot lights,
+ * camera cone and walls. One call per split-screen view.
+ */
+export function drawWorldFrame(scene: ActorScene, screenHeight: number): void {
   const { level, drawer, fb, dark, drawRect, screenPos, effects } = scene;
   drawFloor(level, scene.sprites, drawer, fb, dark, drawRect, screenPos);
   drawPlayers(scene, false, screenHeight);
@@ -1450,5 +1466,19 @@ export function drawFrame(scene: ActorScene, screenHeight: number): void {
   drawSpots(scene, screenHeight);
   drawBlackPartsOfLevel(scene);
   drawWalls(scene);
+}
+
+/**
+ * Composes a full in-game frame in the original `DrawFrame` order: floor,
+ * dead players, low effects, body parts, character shadows, crates, bullets,
+ * live enemies, players, fire lights, block shadows, high effects, spot
+ * lights, camera cone and walls — then the HUD (when `scene.hud` is set).
+ *
+ * This is the single-view composition; the split-screen session calls
+ * {@link drawWorldFrame} / {@link drawPlayerHud} per view and
+ * {@link drawGlobalHud} once.
+ */
+export function drawFrame(scene: ActorScene, screenHeight: number): void {
+  drawWorldFrame(scene, screenHeight);
   drawHudFrame(scene);
 }

@@ -77,8 +77,7 @@ the default and either path produces identical output.
 
 Single-player co-op campaign is playable end-to-end at verified parity (milestones M0–M9:
 scaffolding, asset pipeline, renderer, simulation, enemy AI, HUD/menus, shop/statistics,
-audio, and the parity harness). M10 (polish/deployment) is in progress: the static build
-and production host are done; a boot/loading overlay and error surfacing are in. Deferred
-(planned, not out of scope): local split-screen for up to four players and WebRTC/WebSocket
-netplay, which restore deathmatch frags/scoring. See
+audio, and the parity harness). M10 (polish/deployment) and M11 (local split-screen for up
+to four players on one keyboard + mouse) are in; M12 (deathmatch frags/respawn) and M13
+(greenfield WebRTC/WebSocket netplay) are next. See
 [`docs/12-implementation-plan.md`](docs/12-implementation-plan.md) for details.
