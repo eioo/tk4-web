@@ -584,9 +584,16 @@ export class App implements MenuHost {
     const starty = Math.trunc(this.fb.height / 2 - handle.font.height / 2);
     const endx = Math.trunc(this.fb.width / 2 + lineWidth / 2);
     const endy = Math.trunc(this.fb.height / 2 + handle.font.height / 2);
-    this.fb.drawBox(
-      { left: startx - 10, top: starty - 10, right: endx + 10, bottom: endy + 10 },
-      10,
+    const rect = { left: startx - 10, top: starty - 10, right: endx + 10, bottom: endy + 10 };
+    // `CGraphicsBuffer::DrawBox`: bright 1px border, interior darkened by 10.
+    this.fb.drawBox(rect, 10);
+    // The original only darkens the frozen frame, so the (dimmed) menu text is
+    // still behind the box. The port redraws whole frames, which makes that
+    // text collide with the confirmation text, so clear the interior to the
+    // opaque box the original shows.
+    this.fb.fillRect(
+      { left: rect.left + 1, top: rect.top + 1, right: rect.right - 1, bottom: rect.bottom - 1 },
+      0,
     );
     this.writeText(handle, startx, starty, text, VAlign.Below, HAlign.ToRight);
   }
