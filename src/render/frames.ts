@@ -1,5 +1,5 @@
 /**
- * Static-frame parity cases (docs 13). Each entry is a level file (relative to
+ * Static-frame parity cases (docs/parity-testing-and-risks.md). Each entry is a level file (relative to
  * the reference `data/` dir) and the SHA-256 of the frame the C++ rendering
  * oracle (`tools/reference/render_gen.cpp`) produces at the level's first start
  * point. `src/render/__test__/static-frame.test.ts` and `tools/parity.ts` both

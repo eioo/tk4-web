@@ -4,7 +4,7 @@
  *
  * Block heights are dumped in their on-disk form (0 for old-format levels,
  * where the oracle re-derives them from `KBlockHeights`) so the oracle validates
- * the height table independently. The M4 section (general info, enemies, crates,
+ * the height table independently. The entity section (general info, enemies, crates,
  * steams) is appended after the start points; the render oracle ignores it.
  *
  *   bun run tools/reference/dump-level.ts <level.lev> <dump.bin>
@@ -37,7 +37,7 @@ export function dumpLevel(level: Level): Uint8Array {
     i32(s.y);
   }
 
-  // ---- M4: general info, enemies, crates, steams ----
+  // ---- general info, enemies, crates, steams ----
   i32(level.general.timeLimit);
   for (let a = 0; a < 10; a++) i32(level.general.enemies[a] ?? 0);
   i32(level.enemies.length);

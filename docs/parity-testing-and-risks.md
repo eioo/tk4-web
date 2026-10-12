@@ -1,4 +1,4 @@
-# 13 — Parity, Testing & Risks
+# Parity, Testing & Risks
 
 The goal is "same physics, same sounds, same art". This doc describes how we verify that
 and enumerates the things most likely to break it.
@@ -6,7 +6,7 @@ and enumerates the things most likely to break it.
 ## Ground truth: build the original
 
 The single most valuable tool is a **working reference build** of the C++ game
-(doc 14). From it we can:
+([Tooling & Environment](tooling-and-environment.md)). From it we can:
 
 - capture reference **screenshots** at fixed levels/cameras (pixel diff vs. port),
 - capture reference **state traces** for seeds (entity positions, angles, HP, counts),
@@ -107,7 +107,7 @@ Setup: players → fixed enemies (`rand()%360`) → random enemies (`rand()%(W-2
 `rand()%(H-2)`, `rand()%360` per try) → random crates (`rand()%(W*20)`,
 `rand()%(H*20)`) → DM random player placement.
 
-Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowSteam`
+Per tick (from [Simulation & Physics](simulation-and-physics.md)/[Enemy AI](enemy-ai.md) call inventory): `CheckBurning` (`rand()%8`), `ShowSteam`
 (`rand()%6`), `DecideAndMove` (`rand()%125`, `rand()%40`, `rand()%50`, `rand()%360`),
 `Move` (`rand()%3`), `GetDamage` (`rand()%7`, `rand()%360`, `rand()%2`), `Shoot`
 (`rand()%AngleAdd`), `CBullet::Move` (`rand()%8`, `rand()%360`, `rand()%2`, `rand()%6`,
@@ -146,7 +146,7 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   `drawRect`, and the netplay-only `SimWorld.perSeatMouse` feeds each seat its own mouse
   (local play keeps the single `mouseOwner` path unchanged; aim/shoot must not depend on
   the local `mouseOwner`). `Date.now()` seeding is bypassed online. `renderRng` stays
-  cosmetic. Prediction + rollback ([09](multiplayer/09-netcode-prediction.md)) let each
+  cosmetic. Prediction + rollback ([09](multiplayer/netcode-prediction.md)) let each
   client run ahead, then rewind to a keyframe and replay when authoritative input arrives;
   snapshots cover the world, session counters **and** `GameStatistics` (the sim writes to
   it every tick). Guarded by `src/sim/__test__/world.test.ts` (per-seat mouse, two
@@ -157,7 +157,7 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   cooperative path; it does not model `CPlayer::RandomPlace`, the `FragText`/`SuicideText`
   `rand()` draw on a player kill, or the DM respawn, all of which consume the shared RNG.
   The coop scenarios are unchanged and still byte-exact; a DM trace would require extending
-  `simreference.h` (docs/12 M12).
+  `simreference.h` ([Implementation Plan](implementation-plan.md) M12).
 - **`CEnemy::SoundHeard` is modelled.** The oracle now mirrors `CEnemy::SoundHeard`
   (positional samples make nearby hostile enemies with line of sight start an assault),
   and the `combat` scenario exercises it; `SimWorld.hearSounds` is on for both sides.
@@ -222,7 +222,7 @@ transitions (fade/zoom) / menu rendering (needs the full SDL reference build).
   port owns — index→RGBA conversion at 640×480…1280×960 and the 640×480 static compose —
   and exits non-zero over budget. Measured on the dev machine: convert 640×480 ≈ 0.3 ms,
   1280×960 ≈ 1.1 ms, compose 640×480 ≈ 2 ms, leaving ample room for the display blit.
-- Two presenters share the `Presenter` interface (doc 10): Canvas2D `putImageData`
+- Two presenters share the `Presenter` interface ([Web Port Architecture](web-port-architecture.md)): Canvas2D `putImageData`
   (default) and the WebGL index-texture + palette shader (`src/render/presenters/webgl.ts`,
   selectable with `?presenter=webgl`). The WebGL path produces byte-identical pixels
   (verified against `Framebuffer.toRgba`) and is the fallback for large modes or low-end

@@ -4,7 +4,7 @@
  * be unit-tested without Bun or sockets (the transport adapters live in
  * `tools/net-server.ts` and `tools/serve.ts`).
  *
- * Design: `docs/multiplayer/03-server.md`.
+ * Design: `docs/multiplayer/server.md`.
  */
 
 import {

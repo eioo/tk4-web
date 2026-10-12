@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Derived from Tapan Kaikki 4 (GPLv2); see LICENSE.
+
 // Reference oracle for the rendering path: static level (floor, block shadows,
 // camera-cone black parts, pseudo-3D walls), lights, and the HUD/fonts. The
 // draw code lives in tkreference.h / simreference.h as near-verbatim copies of

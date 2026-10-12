@@ -1,10 +1,10 @@
-# 09 — Prediction and rollback
+# Prediction and rollback
 
-The first lockstep implementation (docs 01–08) waited for the server's input
+The first lockstep implementation ([Architecture](architecture.md)–[Testing & Risks](testing-and-risks.md)) waited for the server's input
 bundle before advancing the local seat, so *your* movement and turning lagged by
 a full round trip. This document replaces that with **client-side prediction and
 rollback** (the "GGPO" model), while keeping the deterministic shared world from
-doc 01.
+[Architecture](architecture.md).
 
 ## 1. The idea
 
@@ -27,7 +27,7 @@ The server stays a dumb lobby + tick master.
 
 `tick` is the server's tick, zero-based and reset by every `levelStart`. Clients
 start their predictor at tick 0 when the level begins (the `s.loaded` barrier,
-doc 03, means the server is not ticking yet).
+[Server](server.md), means the server is not ticking yet).
 
 `s.input` carries the tick the input applies to:
 

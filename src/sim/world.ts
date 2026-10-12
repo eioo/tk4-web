@@ -1,5 +1,5 @@
 /**
- * M3 world simulation: players, bullets, and the per-tick update order from
+ * World simulation: players, bullets, and the per-tick update order from
  * `CGameSubStateOngoing::RunFrame` / `CLevelRuntimeData` / `CDynGameData`.
  *
  * This is a faithful port of `tools/reference/simreference.h` (which itself
@@ -7,8 +7,8 @@
  * C++ produces a `float`, and multi-`rand()` argument order is written out in
  * g++'s right-to-left order so traces match the oracle byte-for-byte.
  *
- * Deferred to M4: enemies, effects (they are counted but not rolled), body
- * parts, crates. The RNG-consumption of the call sites is still reproduced.
+ * Enemies, effects (counted but not rolled), body parts and crates are updated
+ * as well; the RNG consumption of their call sites is reproduced too.
  */
 
 import {
@@ -195,7 +195,7 @@ export function makeStartPlayer(): SimPlayer {
 
 /**
  * A rollback snapshot of everything in {@link SimWorld} that the simulation can
- * mutate (netplay prediction, docs/multiplayer/09). Level data, config and the
+ * mutate (netplay prediction, docs/multiplayer/netcode-prediction.md). Level data, config and the
  * statistics sink are invariant and deliberately excluded.
  */
 export interface WorldState {
@@ -264,7 +264,7 @@ export class SimWorld {
   /**
    * Netplay extension: when set, every seat consumes its own mouse input
    * instead of the single shared `mouseOwner`. Off for single-player and local
-   * split-screen (parity), on for online matches (docs/multiplayer/01).
+   * split-screen (parity), on for online matches (docs/multiplayer/architecture.md).
    */
   perSeatMouse = false;
   mouseSensitivity = 0.5;
@@ -303,7 +303,7 @@ export class SimWorld {
   /**
    * `CEnemy::SoundHeard` on positional samples. The parity oracle
    * (`tools/reference/simreference.h`) does not model it yet, so the replay
-   * harness turns it off to stay byte-comparable (docs/13).
+   * harness turns it off to stay byte-comparable (docs/parity-testing-and-risks.md).
    */
   hearSounds = true;
   /** Monotonic id for enemy bullet-owner identity. */
@@ -464,7 +464,7 @@ export class SimWorld {
   }
 
   // ---------------------------------------------------------------------
-  // M7: sound emission (CSoundPlayer)
+  // Sound emission (CSoundPlayer)
   // ---------------------------------------------------------------------
 
   /** `CSoundPlayer::PlayPosSample` — queues a panned sample and lets enemies hear it. */
@@ -1408,7 +1408,7 @@ export class SimWorld {
   }
 
   // ---------------------------------------------------------------------
-  // M4: enemies
+  // Enemies
   // ---------------------------------------------------------------------
 
   private enemyOwnerId(e: SimEnemy): number {
@@ -1765,7 +1765,7 @@ export class SimWorld {
   }
 
   // ---------------------------------------------------------------------
-  // M4: body parts
+  // Body parts
   // ---------------------------------------------------------------------
 
   private bodyPartSetAngleAndSpeed(part: SimBodyPart, v: { x: number; y: number }): void {
@@ -1861,7 +1861,7 @@ export class SimWorld {
   }
 
   // ---------------------------------------------------------------------
-  // M4: effects, body parts, enemies, crates per-frame plumbing
+  // Effects, body parts, enemies, crates per-frame plumbing
   // ---------------------------------------------------------------------
 
   /** `CLevelRuntimeData::PerFrameCalc`. */
@@ -1963,7 +1963,7 @@ export class SimWorld {
   }
 
   // ---------------------------------------------------------------------
-  // M4: enemy/crate placement
+  // Enemy/crate placement
   // ---------------------------------------------------------------------
 
   /** `CDynGameData::TestEnemyLocation`. */

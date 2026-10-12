@@ -1,4 +1,4 @@
-# 07 — Implementation plan
+# Implementation plan
 
 Ordered milestones, each independently testable. "Done" = acceptance criteria
 pass, gates green (`bun test`, `bun run typecheck`, `bun run lint`,
@@ -16,7 +16,7 @@ Legend: 🎯 deliverable · ✅ acceptance · ⚠️ risk.
   start, lockstep stepping, statistics/shop ready barrier, match endings,
   disconnect/host migration.
 - ✅ **N4** — polish, docs, deployment.
-- ✅ **N5** — client-side prediction + rollback (docs 09, `e1cc77a`); protocol
+- ✅ **N5** — client-side prediction + rollback ([Netcode Prediction](netcode-prediction.md), `e1cc77a`); protocol
   v2 (tick-stamped inputs, ping/pong).
 
 Implementation notes vs. the design docs: `levelStart` no longer carries `last`
@@ -24,7 +24,8 @@ Implementation notes vs. the design docs: `levelStart` no longer carries `last`
 per-seat `null` entries; `NetPlayerState` gained `curWeapon`/`secWeapon`; the
 lobby re-indexes seats on a leave and resyncs peers with `c.seat`; malformed
 messages are dropped rather than closing the socket. N5 supersedes the
-"no prediction" stance of docs 01/04 — see **09**.
+"no prediction" stance of [Architecture](architecture.md)/[Client](client.md) — see
+[Netcode Prediction](netcode-prediction.md).
 
 ---
 
@@ -147,7 +148,7 @@ sub-tasks.
   lobby.
 - Dev hooks `window.tk4Net` + `src/globals.d.ts`.
 - Lobby status/roster edge cases (name length, duplicate names).
-- Update `docs/09`, `docs/12` (M13 → done), `docs/13` (netplay hazards), root
+- Update [Netcode Prediction](netcode-prediction.md), [Implementation Plan](../implementation-plan.md) (M13 → done), [Parity, Testing & Risks](../parity-testing-and-risks.md) (netplay hazards), root
   `README.md`, and this directory's status line.
 - Production: confirm `tools/serve.ts` WS works behind Caddy/Cloudflare; document
   `bun run start` serving both static and WS.

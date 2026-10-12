@@ -1,5 +1,5 @@
 /**
- * Float-faithful level physics (M3): `CLevel::Collision`,
+ * Float-faithful level physics: `CLevel::Collision`,
  * `CLevel::VisibilityCheck` (with collision point), `Reachable`, `DustBlock`.
  *
  * The C++ versions compute in 32-bit `float`; the `f32` rounding points here

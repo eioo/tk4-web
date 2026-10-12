@@ -1,4 +1,4 @@
-# 08 — Testing and risks
+# Testing and risks
 
 ## 1. Test strategy
 
@@ -69,7 +69,7 @@ risk is netplay breaking it.
    operations of the existing `mouseOwner` block, just looped; subtle reassociation
    will drift.
 5. **Float/render RNG.** Do not move any draw-time RNG into the tick, and keep the
-   `f32` discipline (docs/13).
+   `f32` discipline ([Parity, Testing & Risks](../parity-testing-and-risks.md)).
 6. **Config resolution.** All clients run the same build ⇒ same merged `.ini`;
    don't add a client-local gameplay option online.
 7. **Input substitution.** A client must never apply its own input to a tick the
@@ -105,7 +105,7 @@ anything on the wire. Not part of the protocol in v1.
 ## 4. Non-goals / explicitly deferred
 
 Reconnect, spectators, chat, matchmaking, binary framing, server-side simulation,
-WebRTC. (Client prediction + rollback is no longer deferred — see docs 09 / N5.)
+WebRTC. (Client prediction + rollback is no longer deferred — see [Netcode Prediction](netcode-prediction.md) / N5.)
 Each is a separate future milestone and should not leak into the current work
 unless the plan is revised.
 

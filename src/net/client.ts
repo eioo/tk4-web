@@ -3,7 +3,7 @@
  * messages for the app to drain on its own tick, and buffers the incoming tick
  * bundles for lockstep stepping.
  *
- * Design: `docs/multiplayer/04-client.md`.
+ * Design: `docs/multiplayer/client.md`.
  */
 
 import {
@@ -21,7 +21,7 @@ import {
 
 export type NetStatus = "idle" | "connecting" | "lobby" | "playing" | "closed";
 
-/** How often to probe the round-trip time (prediction lead, docs/multiplayer/09). */
+/** How often to probe the round-trip time (prediction lead, docs/multiplayer/netcode-prediction.md). */
 const KPING_INTERVAL_MS = 500;
 
 /**

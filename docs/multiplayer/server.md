@@ -1,4 +1,4 @@
-# 03 — Server
+# Server
 
 Bun WebSocket server. One process shares rooms across all connections; it never
 runs the simulation.
@@ -80,7 +80,7 @@ broadcast tick{ tick, inputs }
 tick++
 ```
 
-- Clients predict ahead (docs 09) and stamp each `s.input` with the tick it
+- Clients predict ahead ([Netcode Prediction](netcode-prediction.md)) and stamp each `s.input` with the tick it
   applies to, so an input normally arrives before its tick. The server never
   waits: a seat with no stamped input for this tick contributes `ZERO_INPUT`.
 - Inputs for already-emitted ticks or more than `KMAX_INPUT_LOOKAHEAD` ahead are

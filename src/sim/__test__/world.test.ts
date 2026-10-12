@@ -7,7 +7,7 @@ import { BulletId, WeaponId } from "../types";
 import { Key, MouseButton, SimPlayer, SimWorld, type SimInput } from "../world";
 
 /**
- * Netplay determinism guards (docs/multiplayer/01). Online every client runs the
+ * Netplay determinism guards (docs/multiplayer/architecture.md). Online every client runs the
  * same world from the same seed and input bundles, so `perSeatMouse` must not
  * introduce nondeterminism and must let each seat drive its own rotation.
  */

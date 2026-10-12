@@ -1,6 +1,6 @@
 /**
  * `COptionsData` / `COptions` — the in-memory options plus the episode and
- * music-theme lists. Persistence to disk (`options.cfg`) is M8; here the
+ * music-theme lists. Persistence to disk (`options.cfg`) is not handled here; the
  * defaults come from `COptionsData::Reset` and the lists from the asset
  * manifest (the browser cannot `scandir`, so `tools/build-assets.ts` emits the
  * same listing the original builds from `levs/` and `music/`).
@@ -30,7 +30,7 @@ export const DEFAULT_MUSICTHEME = "default";
  * `CGraphicsDevice::iResolutions` for the browser (the original queries SDL).
  * Ascending, deduplicated, ≥ 320×200, as `ListVideoModes` builds it. The port's
  * framebuffer stays at 640×480 and the presenter scales to the window, so this
- * is a stored preference only (docs/12).
+ * is a stored preference only.
  */
 export const VIDEO_MODES: readonly { readonly x: number; readonly y: number }[] = [
   { x: 320, y: 200 },

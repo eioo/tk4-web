@@ -1,4 +1,4 @@
-# 07 — Level Format (`.lev`)
+# Level Format (`.lev`)
 
 Source: `src/common/CLevel.cpp` (`Load`, `LoadOldFormat`, `LoadNewFormat`),
 `src/common/CEditableLevel.cpp` (writer), `CLevel.h`, `CSpotlight.h`, `CSteam.h`.
@@ -123,7 +123,7 @@ After loading, in this order:
 ## Crates placed in the level
 
 `TCrateInfo { type1, type2, x, y }`. `type1` is the crate class
-(`0 weapon, 1 bullet, 2 health?, 3 money?, 4 target?` — see doc 03 for the actual
+(`0 weapon, 1 bullet, 2 health?, 3 money?, 4 target?` — see [Simulation & Physics](simulation-and-physics.md) for the actual
 mapping used by `NewCrate`); `(x,y)` are **pixel** coordinates. Random crates specify
 `(type1, type2, amount)` and are placed at random positions validated by
 `CheckCratePlace` (on floor, inside bounds, ≥50 px from local players).

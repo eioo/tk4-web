@@ -1,5 +1,5 @@
 /**
- * `CMath` plus the `CCoord` movement helpers (docs 03).
+ * `CMath` plus the `CCoord` movement helpers (docs/simulation-and-physics.md).
  *
  * Angles are integer degrees in [0, 360); `sine`/`cose` use the original's
  * precomputed 32-bit float tables, so every table value is rounded exactly

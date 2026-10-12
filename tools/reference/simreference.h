@@ -1,4 +1,7 @@
-// Shared simulation reference for the Tapan Kaikki 4 -> TypeScript port (M3).
+// SPDX-License-Identifier: GPL-2.0-only
+// Derived from Tapan Kaikki 4 (GPLv2); see LICENSE.
+
+// Shared simulation reference for the Tapan Kaikki 4 -> TypeScript port.
 //
 // Near-verbatim copies of the original gameplay maths: CMath tables, glibc
 // rand(), the weapon/bullet type tables, CCharacter::Move, CPlayer (movement,
@@ -213,7 +216,7 @@ static void InitWeaponTypes() {
 	gBullets[B_GREN].bounceSound = SSE_METAL_HIT;
 }
 
-// ---- M4: effect / body part / enemy type tables ----
+// ---- effect / body part / enemy type tables ----
 enum SimBodyPartId { BP_HEAD = 0, BP_ARM, BP_CHEST, BP_ENTRAILS, BP_LLEG, BP_RLEG, BP_SHIT,
 	BP_BURNED, BP_SKULL, BP_BONES, BP_AMOUNT };
 enum SimEnemyId { EN_PISTOL = 0, EN_SHOTGUN, EN_UZI, EN_COMMANDO, EN_BAZOOKA, EN_CIVILIAN,
@@ -301,7 +304,7 @@ static int SimApproxDistance(const BulletType& t) {
 	return (int)(n * ((a1 + an) / 2));
 }
 
-// ---- M4: entity state ----
+// ---- entity state ----
 struct SimFx { int type = -1; CoordF loc; CoordF vec; int counter = 0; };
 struct SimBodyPart { CoordF loc; int type = 0; int angle = 0; float speed = 0; };
 struct SimEnemy {
@@ -1120,7 +1123,7 @@ static void SimInitScr(SimPlayer& p, const RectI& drawRect) {
 static void SimDecHits(SimPlayer& p) { if (p.hit > 0) p.hit--; }
 
 // ===========================================================================
-// M4: body parts
+// Body parts
 // ===========================================================================
 static void SimBodyPartSetAngleAndSpeed(SimBodyPart& bp, CoordF v) {
 	float s = VectorLenF(v);
@@ -1198,7 +1201,7 @@ static void SimKickBodyParts(SimWorld& w, SimPlayer& p) {
 }
 
 // ===========================================================================
-// M4: enemies
+// Enemies
 // ===========================================================================
 static void SimKillEnemy(SimWorld& w, size_t index) {
 	CoordI p = ToInt2(w.enemies[index].loc);
@@ -1434,7 +1437,7 @@ static void SimCheckBurn(SimWorld& w) {
 }
 
 // ===========================================================================
-// M4: effects
+// Effects
 // ===========================================================================
 static int SimEffectRoll(SimWorld& w, SimFx& e, int amount) {
 	const EffectType& t = gEffects[e.type];
@@ -1468,7 +1471,7 @@ static void SimRollEffects(SimWorld& w) {
 }
 
 // ===========================================================================
-// M4: crates
+// Crates
 // ===========================================================================
 static void SimCrateMoveText(SimWorld& w, SimCrate& c) {
 	if (c.textCounter > 0) {

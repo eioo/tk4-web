@@ -1,4 +1,4 @@
-# 04 — Client
+# Client
 
 The client owns transport, its own input, and lockstep stepping. Everything else
 reuses the existing `App` state machine and `SimWorld`.
@@ -10,7 +10,7 @@ reuses the existing `App` state machine and `SimWorld`.
 | `src/net/client.ts` | `NetClient`: WebSocket wrapper, typed send/receive, connection status, RTT probing, event queue. |
 | `src/net/protocol.ts` | Shared message types/constants (with the server). |
 | `src/net/state.ts` | `NetPlayerState` ⇄ `SimPlayer` conversion (persistent fields only). |
-| `src/net/lockstep.ts` | `LockstepClient`: prediction, keyframes, rollback reconciliation (docs 09). |
+| `src/net/lockstep.ts` | `LockstepClient`: prediction, keyframes, rollback reconciliation ([Netcode Prediction](netcode-prediction.md)). |
 
 `NetClient` has no DOM UI; `App` reads its state each tick and drives menu
 transitions.
@@ -51,7 +51,7 @@ it uses `options.data.keys[0]` and its own mouse, exactly like single-player.
 ## 4. Prediction and rollback
 
 The client predicts ahead and rolls back on authoritative bundles — see
-[docs 09](09-netcode-prediction.md) for the full model. In `App.tick()` while
+[[Netcode Prediction](netcode-prediction.md)](netcode-prediction.md) for the full model. In `App.tick()` while
 online and `gameState === OnGoing`:
 
 ```

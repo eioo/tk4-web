@@ -1,6 +1,6 @@
 /**
  * `IGameMode` — cooperative (attack) or deathmatch rules. Ported from
- * `CGameModeCooperative` / `CGameModeDeathmatch` (docs/01, docs/12 M12).
+ * `CGameModeCooperative` / `CGameModeDeathmatch` (docs/game-overview.md).
  *
  * The mode decides the objective, whether frags/kill messages are shown, the
  * player setup at game/level start, DM crates and whether players respawn.

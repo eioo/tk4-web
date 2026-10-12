@@ -1,4 +1,4 @@
-# 12 — Incremental Implementation Plan
+# Incremental Implementation Plan
 
 Milestones are ordered so each one produces something runnable/testable and reduces
 risk early. "Done" means the acceptance criteria pass, not just "code written".
@@ -22,7 +22,7 @@ Legend: 🎯 deliverable · ✅ acceptance criteria · ⚠️ risk to watch.
 
 ## M1 — Asset pipeline & decoders
 
-🎯 Build-time extractors (doc 11) + a manifest; runtime loaders for EFP/FNT/PCX/INI/
+🎯 Build-time extractors ([Asset Pipeline](asset-pipeline.md)) + a manifest; runtime loaders for EFP/FNT/PCX/INI/
 palette.tab; raw `.lev` shipped.
 - EFP decoder + global palette extraction + `palette.tab` parser.
 - `RotateSprites` / `MakeFloors` / `ZoomWall` ports.
@@ -32,7 +32,7 @@ palette.tab; raw `.lev` shipped.
 ✅ Unit tests: every bundled `.efp` decodes with expected w×h; every `.lev` parses with a
 sane width/height; `palette.tab` is 86016 bytes and round-trips; generated character
 sheets are byte-identical to a Python reference (or to the reference build).
-⚠️ Sprite-sheet "base strip" ambiguity (doc 05) — validate against the reference binary.
+⚠️ Sprite-sheet "base strip" ambiguity ([Rendering Pipeline](rendering-pipeline.md)) — validate against the reference binary.
 
 ---
 
@@ -66,7 +66,7 @@ strafe/camera; bullets and `VisibilityCheck`; weapons and firing; damage.
 ✅ Seeded replay reproduces expected positions/angles after N ticks; player can run
 around a level, shoot, and bullets collide/bounce exactly like the reference (state diff
 against a reference trace).
-⚠️ RNG evaluation order (doc 13); camera `MoveScr` integer quirks.
+⚠️ RNG evaluation order ([Parity, Testing & Risks](parity-testing-and-risks.md)); camera `MoveScr` integer quirks.
 
 **Status:** done. `src/core/rng.ts` (glibc TYPE_3 `rand()`), `src/core/math.ts` (`CMath`
 tables + `CCoord` helpers), `src/sim/types.ts` (weapon/bullet type tables),
@@ -81,7 +81,7 @@ switching, with the player sprite, its shadow, bullets and rockets drawn. Effect
 rendering, enemies, crates and body parts are M4; lights/HUD are M5.
 
 The sim does **not** yet consume RNG from rendering (the original's `DrawSpots` etc.
-touch `rand()`), and non-local players are static here — both documented in doc 13.
+touch `rand()`), and non-local players are static here — both documented in [Parity, Testing & Risks](parity-testing-and-risks.md).
 
 ---
 
@@ -126,7 +126,7 @@ bullets have no sprite — their entire visual is a light. Added
 spots) are wired into `drawFrame` in the original order. Byte-exact against new
 oracle modes (`render_gen lightmap` / `lightrender`); see
 `src/data/__test__/light-map.test.ts` and `src/render/__test__/light.test.ts`.
-`DrawSpots` uses a separate render RNG (doc 13).
+`DrawSpots` uses a separate render RNG ([Parity, Testing & Risks](parity-testing-and-risks.md)).
 
 HUD/fonts: `src/data/font.ts` gained `fontWrite` (a full `CFonts::Write` port
 with `iOneIsZero`, scaling and all alignments) and `src/render/hud.ts` the HUD
@@ -250,7 +250,7 @@ sample. Effects are decoded from the merged `default.ini` at boot; music assets
 are copied by `bun run assets` (which clones the upstream checkout if needed).
 
 ⚠️ The parity oracle does not model `CEnemy::SoundHeard` yet, so the replay
-harness disables hearing to stay byte-comparable (docs/13); the shipped replay
+harness disables hearing to stay byte-comparable ([Parity, Testing & Risks](parity-testing-and-risks.md)); the shipped replay
 scenario does not otherwise trigger it.
 
 ---
@@ -294,7 +294,7 @@ audio/gamma/large-text are re-applied and the result is saved.
 
 ## M9 — Parity hardening
 
-🎯 Reference build harness (doc 13), scripted scenario replays, automated pixel/state
+🎯 Reference build harness ([Parity, Testing & Risks](parity-testing-and-risks.md)), scripted scenario replays, automated pixel/state
 diffs, performance budget for the presentation path.
 
 ✅ CI-style task compares port vs. reference traces/screenshots across N scenarios and
@@ -314,11 +314,11 @@ The new scenarios exposed and fixed real drift: float32 table storage and litera
 (`src/sim/types.ts` + several `f32(x ± f32(k))` sites in `src/sim/world.ts`), a reversed
 multi-`rand()` argument order on enemy death, a missing `walkCounter` clamp in
 `CEnemy::SoundHeard`, and a use-after-free in the oracle's bullet loop (an explosion appends
-bullets mid-iteration). All are documented in docs/13 and covered by the replay.
+bullets mid-iteration). All are documented in [Parity, Testing & Risks](parity-testing-and-risks.md) and covered by the replay.
 
 `bun run perf` (`tools/perf.ts`) enforces the presentation CPU budget: index→RGBA conversion
 at 640×480…1280×960 and the 640×480 static compose each run far inside a 60 fps frame. The
-WebGL palette-shader presenter (docs/10, approach B) is implemented
+WebGL palette-shader presenter ([Web Port Architecture](web-port-architecture.md), approach B) is implemented
 (`src/render/presenters/webgl.ts`) and selectable with `?presenter=webgl`; its output is
 byte-identical to the Canvas2D path, which remains the default.
 
@@ -382,7 +382,7 @@ mouse mode is applied through `GameSession::setMouseOwner`.
 
 Caveats: the replay/oracle script still feeds one input row per tick to every local seat
 (no per-seat trace, so no split-screen parity scenario yet), and the shop/statistics flow
-still operates on seat 0. Both are noted in docs/13.
+still operates on seat 0. Both are noted in [Parity, Testing & Risks](parity-testing-and-risks.md).
 
 ## M12 — Deathmatch
 
@@ -416,20 +416,20 @@ subtracts frags and respawns on death.
 
 Caveat: DM is not in the parity oracle — `RandomPlace` and the kill texts consume the
 shared RNG, and the oracle models the cooperative path only — so DM is verified in the
-browser rather than byte-for-byte (docs/13).
+browser rather than byte-for-byte ([Parity, Testing & Risks](parity-testing-and-risks.md)).
 
 ## M13 — Netplay (WebSocket)
 
-> **Designed in [`docs/multiplayer/`](multiplayer/README.md).** A deterministic shared
+> **Designed in [`multiplayer/`](multiplayer/README.md).** A deterministic shared
 > `SimWorld` over Bun WebSockets: every client runs the full sim from tick-stamped
 > input bundles, with the server as lobby + tick master + input relay (no simulation),
 > and **client-side prediction + rollback** so local movement is instant
-> ([09](multiplayer/09-netcode-prediction.md)). It covers host/join by 5-letter code,
-> coop full-episode progression (statistics + per-player shop), online deathmatch with
-> a host-configurable frag limit, idle seats and host migration. Milestones live in
-> [07-implementation-plan.md](multiplayer/07-implementation-plan.md).
+> ([Netcode Prediction](multiplayer/netcode-prediction.md)). It covers host/join by
+> 5-letter code, coop full-episode progression (statistics + per-player shop), online
+> deathmatch with a host-configurable frag limit, idle seats and host migration.
+> Milestones live in [multiplayer/implementation-plan.md](multiplayer/implementation-plan.md).
 
-**Status:** N1–N5 implemented on `online-multiplayer` — the shared protocol and pure
+**Status:** implemented — the shared protocol and pure
 room manager, the Bun WebSocket servers (`bun run net` for dev, `/ws` on
 `tools/serve.ts`), the multiplayer-mode/host/join/lobby menus, the online match
 (per-seat mouse, single-view rendering, episode progression with the ready barrier,
@@ -437,7 +437,7 @@ online deathmatch frag limit, idle seats and host migration), and prediction +
 rollback (protocol v2).
 
 🎯 Greenfield peer sync built on the split-screen model. The original's network layer is
-compiled-out dead code with empty `Send`/`Available` (docs/13), so there is no wire format
+compiled-out dead code with empty `Send`/`Available` ([Parity, Testing & Risks](parity-testing-and-risks.md)), so there is no wire format
 worth emulating; only its ownership split is a useful hint (server owns level, enemies,
 crates and game data; each client streams its own player transform; damage is applied by
 the damage-authority side). Design and implement after M11/M12.
@@ -452,7 +452,7 @@ cooperative flow is complete without it.
 
 ## Cross-cutting workstreams (run continuously)
 
-- **Reference oracle** — build and run the original early (doc 14) so every milestone can
+- **Reference oracle** — build and run the original early ([Tooling & Environment](tooling-and-environment.md)) so every milestone can
   be checked against ground truth.
 - **Golden traces** — record seeded state traces (positions, angles, counts, RNG draws)
   to enable fast regression tests without rendering.

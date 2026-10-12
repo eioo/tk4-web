@@ -1,4 +1,4 @@
-# 11 — Asset Pipeline
+# Asset Pipeline
 
 Goal: turn the original `tapankaikki4/data/` files into web-ready assets **without
 changing a single pixel or sample**, using reproducible build-time scripts (Bun/TS, with
@@ -44,7 +44,7 @@ trailing 768 bytes = palette, 256×(r,g,b) each 0..63
 ```
 
 Port from `CGraphicsBuffer::LoadEFP`. Also support `.efp2`, `.pcx`, `.sci`, `.bmp`
-(doc 06) because menus use PCX and the editor uses SCI.
+([Asset Formats](asset-formats.md)) because menus use PCX and the editor uses SCI.
 
 ## Character sheet generation — `RotateSprites`
 
@@ -55,7 +55,7 @@ enemy `40`, cell `28`, output `(28+1)` gutter.
 
 > The shipped `rambo*.efp`/`enemy*.efp` are already angle sheets, but the game
 > regenerates them at load from the left-most "base" strip. Run the same algorithm on
-> the same bytes (verified against a reference build, doc 13) — do not "optimise" by
+> the same bytes (verified against a reference build, [Parity, Testing & Risks](parity-testing-and-risks.md)) — do not "optimise" by
 > using the shipped columns.
 
 Also port:
@@ -87,7 +87,7 @@ Decode `.fnt` to `{ w, h, glyphs: Uint8Array(256*w*h) }`. Rendering lives in the
 ## Levels
 
 Ship raw `.lev` files; decode at runtime with the TS port of `CLevel::Load` (both old
-and new, doc 07), including `KBlockHeights`, `GenerateReachableMap`,
+and new, [Level Format](level-format.md)), including `KBlockHeights`, `GenerateReachableMap`,
 `ModifyBorderBlocks`, `DarknessCast`, `GenerateShadows`. Do **not** pre-convert to JSON
 unless needed — runtime decode keeps parity with the original's derived data.
 

@@ -1,5 +1,5 @@
 /**
- * Presentation boundary (doc 10). The renderer owns an 8-bit index
+ * Presentation boundary (docs/web-port-architecture.md). The renderer owns an 8-bit index
  * framebuffer; a `Presenter` converts it to pixels on a `<canvas>`. Two
  * implementations are planned: Canvas2D (`putImageData`, default) and a WebGL
  * palette shader (fallback for large modes). Both consume the same framebuffer

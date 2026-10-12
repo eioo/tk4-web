@@ -10,7 +10,7 @@ The port must reproduce **Tapan Kaikki 4** exactly: same physics, same sounds, s
 The original is an 8-bit palette-indexed **software rasteriser** (per-pixel light tables,
 shadow tables, a pseudo-3D wall renderer, palette fades) presented to a 16-bit SDL
 surface, driven by a fixed 100 Hz simulation with its own state machine ("CState"),
-entity system, physics and animation. See docs 02, 03 and 05.
+entity system, physics and animation. See [Engine Architecture](../engine-architecture.md), [Simulation & Physics](../simulation-and-physics.md) and [Rendering Pipeline](../rendering-pipeline.md).
 
 We build the rasteriser in TypeScript regardless. The question was whether to host it in
 a general-purpose game framework such as Phaser 4, or to own the surrounding concerns
@@ -42,7 +42,7 @@ comparable framework). The stack is:
    through Phaser would require bypassing its renderer anyway, so we would ship a large
    dependency to use a small slice of it.
 3. **Determinism and testability.** Owning the loop lets us offer a fixed-tick replay mode
-   with a seeded glibc-compatible `rand()` (docs 03, 13). Framework loops make
+   with a seeded glibc-compatible `rand()` ([Simulation & Physics](../simulation-and-physics.md), [Parity, Testing & Risks](../parity-testing-and-risks.md)). Framework loops make
    deterministic playback and frame-accurate parity harder to guarantee.
 4. **Dependency and API risk.** Phaser 4 was at `4.0.0-rc.*` during research, with a new
    renderer and sparse docs. Our four engine-touching concerns (present, input, audio,

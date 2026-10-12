@@ -1,5 +1,5 @@
 /**
- * WebGL presenter (docs/10, approach B): upload the 8-bit index framebuffer as a
+ * WebGL presenter (docs/web-port-architecture.md, approach B): upload the 8-bit index framebuffer as a
  * single-channel `LUMINANCE` texture and a 256×1 palette LUT, and let a fragment
  * shader do `color = texture(palette, index)`. Both textures use `NEAREST`
  * filtering, so the result is byte-identical to the Canvas2D path while moving

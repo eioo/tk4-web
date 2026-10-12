@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { GlibcRandom } from "../rng";
 
-// Reference values produced by glibc's `rand()` (see docs/13-parity-testing-and-risks.md).
+// Reference values produced by glibc's `rand()` (see docs/parity-testing-and-risks.md).
 const CASES: Array<[number, number[]]> = [
   [1, [1804289383, 846930886, 1681692777, 1714636915, 1957747793]],
   [42, [71876166, 708592740, 1483128881, 907283241, 442951012]],

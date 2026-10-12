@@ -1,4 +1,4 @@
-# 06 — Asset Formats
+# Asset Formats
 
 All numeric fields are **little-endian** unless noted. Decoding is implemented by the
 original in `src/common/CGraphicsBuffer.cpp`, `CPalette.cpp`, `CFonts.cpp`,
@@ -76,7 +76,7 @@ Glyph rendering (`CFonts::Write`):
 
 ## Palette table (`palette.tab`)
 
-86016 bytes, pre-baked colour tables (see doc 05): transparency, shadow, and four
+86016 bytes, pre-baked colour tables (see [Rendering Pipeline](rendering-pipeline.md)): transparency, shadow, and four
 16-step light tables. Generated from the walls1 palette; safe to ship as-is or
 regenerate.
 

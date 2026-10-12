@@ -1,5 +1,5 @@
 /**
- * CI-style parity task (docs 13). Builds the C++ oracles, regenerates every
+ * CI-style parity task (docs/parity-testing-and-risks.md). Builds the C++ oracles, regenerates every
  * scenario's state trace and each static frame from the reference, runs the
  * same inputs through the TypeScript port, and reports any drift byte-by-byte.
  *

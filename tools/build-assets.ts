@@ -1,5 +1,5 @@
 /**
- * Build-time asset pipeline (docs/11-asset-pipeline.md).
+ * Build-time asset pipeline (docs/asset-pipeline.md).
  *
  * Mirrors the runtime-needed files from the original `tapankaikki4/data` into
  * `public/assets/` and emits a manifest. Assets are copied unchanged and decoded

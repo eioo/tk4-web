@@ -2,7 +2,7 @@
  * Netplay wire protocol — shared by the client (`src/net/client.ts`) and the
  * servers (`tools/net-server.ts`, `tools/serve.ts`).
  *
- * Design: `docs/multiplayer/02-protocol.md`. JSON messages with a `t`
+ * Design: `docs/multiplayer/protocol.md`. JSON messages with a `t`
  * discriminant; `parse*` functions are defensive and return `null` for anything
  * malformed so callers can drop the message (or close the socket).
  */
@@ -101,7 +101,7 @@ export type ClientMessage =
   /**
    * A seat's input for one server tick. The `tick` is the client's predicted
    * tick number, so every client applies the input at the identical tick
-   * (prediction/rollback, docs/multiplayer/09).
+   * (prediction/rollback, docs/multiplayer/netcode-prediction.md).
    */
   | { t: "input"; tick: number; keys: number; mouseXRel: number; mouseButtons: number }
   | { t: "loaded" }

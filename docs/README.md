@@ -7,7 +7,7 @@ practical.
 
 The original source lives in [`../tapankaikki4/`](../tapankaikki4/). This `docs/`
 tree captures how the original engine works, what every data format contains, and how
-the web port is planned and built.
+the web port is built.
 
 ## Purpose
 
@@ -16,25 +16,33 @@ They are intentionally detailed: the port aims for pixel- and physics-level pari
 that requires exact knowledge of the original's constants, draw order, formats and
 random-number behaviour.
 
-## Reading order
+## Contents
 
-| # | Doc | What it covers |
-|---|-----|----------------|
-| 01 | [Game Overview](01-game-overview.md) | What the game is, modes, campaign, controls, content inventory |
-| 02 | [Engine Architecture](02-engine-architecture.md) | Class map, main loop, fixed 100 Hz tick, state machine, lifetimes |
-| 03 | [Simulation & Physics](03-simulation-and-physics.md) | Tick model, coordinates, movement, collision, bullets, explosions, effects, body parts, crates, RNG |
-| 04 | [Enemy AI](04-enemy-ai.md) | Enemy states, senses, targeting, shooting, reactions, per-type stats |
-| 05 | [Rendering Pipeline](05-rendering-pipeline.md) | Palette, 8-bit software renderer, light tables, draw order, sprite sheets, camera, HUD |
-| 06 | [Asset Formats](06-asset-formats.md) | EFP/EFP2, PCX, SCI, BMP, FNT, WAV, OGG, `palette.tab`, ini/cfg |
-| 07 | [Level Format](07-level-format.md) | Old + new `.lev` formats, chunks, block heights, derived maps, spawn rules |
-| 08 | [Game Data Tables](08-game-data-tables.md) | Every weapon/bullet/enemy/effect/body-part/body-part type value from `types.cpp` |
-| 09 | [UI, Flow & Controls](09-ui-flow-and-controls.md) | Menus, options, game sub-states, shop, statistics, HUD, message board, controls |
-| 10 | [Web Port Architecture](10-web-port-architecture.md) | Bun + custom renderer design, module layout, rendering strategy, audio, input, persistence |
-| 11 | [Asset Pipeline](11-asset-pipeline.md) | Converting original data into web-ready assets, deterministically |
-| 12 | [Implementation Plan](12-implementation-plan.md) | Incremental milestones with deliverables and acceptance criteria |
-| 13 | [Parity, Testing & Risks](13-parity-testing-and-risks.md) | Determinism, glibc `rand()`, reference capture, pixel diffing, known hazards |
-| 14 | [Tooling & Environment](14-tooling-and-environment.md) | What must be installed (Bun, SDL 1.2, Xvfb, ffmpeg, …) and why |
-| 15 | [Online Multiplayer](multiplayer/README.md) | Netplay: deterministic shared world over Bun WebSockets with prediction + rollback, lobby, coop progression, DM frag limit |
+### The original game (reference)
+
+| Doc | What it covers |
+|-----|----------------|
+| [Game Overview](game-overview.md) | What the game is, modes, campaign, controls, content inventory |
+| [Engine Architecture](engine-architecture.md) | Class map, main loop, fixed 100 Hz tick, state machine, lifetimes |
+| [Simulation & Physics](simulation-and-physics.md) | Tick model, coordinates, movement, collision, bullets, explosions, effects, body parts, crates, RNG |
+| [Enemy AI](enemy-ai.md) | Enemy states, senses, targeting, shooting, reactions, per-type stats |
+| [Rendering Pipeline](rendering-pipeline.md) | Palette, 8-bit software renderer, light tables, draw order, sprite sheets, camera, HUD |
+| [Asset Formats](asset-formats.md) | EFP/EFP2, PCX, SCI, BMP, FNT, WAV, OGG, `palette.tab`, ini/cfg |
+| [Level Format](level-format.md) | Old + new `.lev` formats, chunks, block heights, derived maps, spawn rules |
+| [Game Data Tables](game-data-tables.md) | Every weapon/bullet/enemy/effect/body-part value from `types.cpp` |
+| [UI, Flow & Controls](ui-flow-and-controls.md) | Menus, options, game sub-states, shop, statistics, HUD, message board, controls |
+
+### The web port
+
+| Doc | What it covers |
+|-----|----------------|
+| [Web Port Architecture](web-port-architecture.md) | Bun + custom renderer design, module layout, rendering strategy, audio, input, persistence |
+| [Asset Pipeline](asset-pipeline.md) | Converting original data into web-ready assets, deterministically |
+| [Parity, Testing & Risks](parity-testing-and-risks.md) | Determinism, glibc `rand()`, reference capture, pixel diffing, known hazards |
+| [Tooling & Environment](tooling-and-environment.md) | What must be installed (Bun, SDL 1.2, Xvfb, ffmpeg, …) and why |
+| [Implementation Plan](implementation-plan.md) | Incremental milestones with deliverables and acceptance criteria |
+| [Online Multiplayer](multiplayer/README.md) | Netplay: deterministic shared world over Bun WebSockets with prediction + rollback, lobby, coop progression, DM frag limit |
+| [ADR-0001: Rendering Stack](adr/0001-rendering-stack.md) | Why a custom software renderer instead of a game framework |
 
 ## TL;DR of the plan
 
@@ -63,4 +71,5 @@ random-number behaviour.
 - **EFP** — the game's indexed sprite format (`"EF pic"` magic).
 - **Global palette** — the single 256-colour palette taken from `efps/walls1.efp`,
   used for *all* in-game pixels.
-- **SSIM/pixel diff** — automated image comparison used for parity testing (doc 13).
+- **SSIM/pixel diff** — automated image comparison used for parity testing
+  ([Parity, Testing & Risks](parity-testing-and-risks.md)).

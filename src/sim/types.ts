@@ -1,9 +1,9 @@
 /**
  * Weapon and bullet type tables (port of `common/types.cpp` +
  * `common/CBulletBase.cpp` defaults). Values are what the simulation reads;
- * light/sprite fields are kept for the renderer's use in M5.
+ * light/sprite fields are kept for the renderer's use.
  *
- * See docs/08-game-data-tables.md.
+ * See docs/game-data-tables.md.
  */
 
 import { f32 } from "../core/math";
@@ -395,7 +395,7 @@ export interface WeaponType {
 }
 
 // ---------------------------------------------------------------------------
-// M4 tables: effects, body parts, enemies (common/types.cpp + the base classes)
+// Effect, body part and enemy tables (common/types.cpp + the base classes)
 // ---------------------------------------------------------------------------
 
 /** `TLightTable` (defines.h). */

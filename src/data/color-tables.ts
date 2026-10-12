@@ -5,7 +5,7 @@
  *   transparency[256][256], shadow[256][16],
  *   normalLight[256][16], redLight[256][16], yellowLight[256][16],
  *   explosionLight[256][16].
- * See docs/05-rendering-pipeline.md.
+ * See docs/rendering-pipeline.md.
  */
 
 export const TRANSPARENCY_SIZE = 256 * 256;

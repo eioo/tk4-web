@@ -5,7 +5,7 @@
  * absolute file offset 512. Total file size is `512 + 256 * width * height`.
  * Note the original `fseek(fnt, 256*2, SEEK_SET)` seeks to 512 absolutely (not
  * to 2 + 512), so exactly 510 bytes between the header and the glyphs are
- * skipped. See docs/06-asset-formats.md.
+ * skipped. See docs/asset-formats.md.
  */
 
 import type { Rect } from "../render/rect";

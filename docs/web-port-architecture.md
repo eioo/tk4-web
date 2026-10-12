@@ -1,4 +1,4 @@
-# 10 — Web Port Architecture (Bun + custom canvas/WebGL renderer)
+# Web Port Architecture (Bun + custom canvas/WebGL renderer)
 
 ## Decision
 
@@ -6,7 +6,7 @@
 [ADR-0001](adr/0001-rendering-stack.md) for the full reasoning.
 
 The original is an **8-bit indexed software rasteriser** with per-pixel light tables
-(doc 05). A general-purpose game framework (sprites, scenes, tilemaps, batch renderer,
+([Rendering Pipeline](rendering-pipeline.md)). A general-purpose game framework (sprites, scenes, tilemaps, batch renderer,
 built-in physics) adds nothing here and cannot reproduce the pipeline. The port therefore:
 
 - implements the original's **software framebuffer in TypeScript** (`Uint8Array` of
@@ -78,7 +78,7 @@ requestAnimationFrame(frame);
 - Mirror the original's "low framerate" catch-up so RNG consumption per displayed frame
   matches when running behind.
 - Provide a **deterministic replay mode**: fixed tick count, seeded RNG, no wall-clock
-  coupling — used by parity tests (doc 13).
+  coupling — used by parity tests ([Parity, Testing & Risks](parity-testing-and-risks.md)).
 
 ## Deterministic RNG
 
@@ -95,7 +95,7 @@ Default seed = `Date.now()` (as the original uses `time(NULL)`); tests/replays o
 
 Own the DOM events; funnel into an `InputState` that mirrors `CEventHandler`:
 
-- per-player 9 key booleans (from the configurable bindings, doc 09),
+- per-player 9 key booleans (from the configurable bindings, [UI, Flow & Controls](ui-flow-and-controls.md)),
 - mouse buttons + right-press edge,
 - mouse X-delta for rotation.
 
@@ -117,7 +117,7 @@ Own WebAudio, mirroring `CSoundPlayer::PlayPosSample`:
   (`PAN_MIDDLE` = centre).
 - Volume from options; multiple concurrent channels allowed.
 - Music: looping `AudioBufferSourceNode` (or `MediaElementSource`) per theme; lazy-load
-  tracks via the asset manifest (doc 11); `ForceSoundTrack`/`ForceSongNumber` honoured.
+  tracks via the asset manifest ([Asset Pipeline](asset-pipeline.md)); `ForceSoundTrack`/`ForceSongNumber` honoured.
 - Audio requires a user gesture before playback under browser autoplay policy — gate on
   the first key/click (the logo/menu screens naturally provide one).
 
@@ -142,7 +142,7 @@ tk4-web/
       math.ts                  # CMath: sin/cos tables, GetAngle/GetDist
       coord.ts, rect.ts        # CCoord / CRect equivalents
     data/
-      types.ts                 # all tables from types.cpp (doc 08)
+      types.ts                 # all tables from types.cpp ([Game Data Tables](game-data-tables.md))
       palette.ts               # global palette + palette.tab tables + light maps
       ingame-data.ts           # default.ini + per-level overrides + sheet generation
       level.ts                 # .lev decoder (old + new) + derived maps
@@ -191,7 +191,7 @@ Unit tests live in a `__test__/` directory next to the code they cover (e.g.
   immutable caching for Vite's hashed bundles, `index.html` fallback). `bun run serve`
   hosts an existing `dist/` without rebuilding. Port/bind come from `--port`/`--host`
   (or `PORT`/`HOST`), defaulting to `0.0.0.0:4173`.
-- **Build-time tools**: asset extraction scripts under Bun/TS (doc 11).
+- **Build-time tools**: asset extraction scripts under Bun/TS ([Asset Pipeline](asset-pipeline.md)).
 
 ## Persistence
 
@@ -214,7 +214,7 @@ black screen.
 ## Explicit non-goals / stubs
 
 - Playable network multiplayer. The original's own network code is non-functional
-  (compiled-out dead code), so this is **greenfield**, not a port: the plan (M13, doc 12)
+  (compiled-out dead code), so this is **greenfield**, not a port: the plan (M13, [Implementation Plan](implementation-plan.md))
   is a WebRTC/WebSocket peer layer with a small authority split, built on the local
   split-screen model (M11).
 - Online version checker (HTTP to `www.errorfree.eu.org`). Drop or stub.

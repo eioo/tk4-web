@@ -1,5 +1,5 @@
 /**
- * glibc-compatible `rand()` / `srand()` (docs 03, 13).
+ * glibc-compatible `rand()` / `srand()` (docs/simulation-and-physics.md, docs/parity-testing-and-risks.md).
  *
  * The original calls `srand((unsigned)time(NULL))` and then libc `rand()`
  * everywhere. To reproduce a run we need glibc's exact generator, which is

@@ -1,5 +1,5 @@
 /**
- * M4 entity data classes: effects, body parts, enemies and crates. The
+ * Entity data classes: effects, body parts, enemies and crates. The
  * behaviour lives in `world.ts` (which owns the RNG and the level); these are
  * the mutable records the per-tick trace serialises.
  */

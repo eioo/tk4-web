@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Derived from Tapan Kaikki 4 (GPLv2); see LICENSE.
+
 // Shared reference implementations for the Tapan Kaikki 4 -> TypeScript port.
 //
 // Everything here is a near-verbatim copy of the original C++ (with only the
@@ -5,7 +8,7 @@
 // TypeScript port can be verified byte-for-byte. No SDL is required.
 //
 // Used by rotate_gen.cpp (asset generation) and render_gen.cpp (static level
-// rendering). See docs/13-parity-testing-and-risks.md.
+// rendering). See docs/parity-testing-and-risks.md.
 
 #ifndef TKREFERENCE_H
 #define TKREFERENCE_H
@@ -277,7 +280,7 @@ struct Level {
 	std::vector<CoordI> iPlStart;
 	std::vector<unsigned char> reachable;
 
-	// M4 entity data (read from the extended level dump).
+	// Entity data (read from the extended level dump).
 	struct EnemyCoord { int type = 0, x = 0, y = 0; };
 	struct CrateCoord { int type1 = 0, type2 = 0, x = 0, y = 0; };
 	struct RandomCrate { int type1 = 0, type2 = 0, amount = 0; };

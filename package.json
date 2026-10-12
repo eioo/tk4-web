@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Browser port of Tapan Kaikki 4 (Bun + custom canvas/WebGL renderer)",
+  "license": "GPL-2.0-only",
   "type": "module",
   "scripts": {
     "dev": "bun run assets:ensure && bun run --parallel dev:app dev:net",

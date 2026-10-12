@@ -1,5 +1,5 @@
 /**
- * Presenter selection (docs/10). The Canvas2D `putImageData` path is the
+ * Presenter selection (docs/web-port-architecture.md). The Canvas2D `putImageData` path is the
  * default; `?presenter=webgl` picks the index-texture + palette-shader path
  * (approach B), which transparently falls back to Canvas2D when WebGL is
  * unavailable or fails to initialise.

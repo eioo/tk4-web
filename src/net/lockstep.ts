@@ -9,7 +9,7 @@
  * the world converges to exactly what every other client computed, while your
  * own movement never waits on the network.
  *
- * `tick` numbers are the server's (see `docs/multiplayer/09`). `docs` 01 has the
+ * `tick` numbers are the server's (see `docs/multiplayer/netcode-prediction.md`). `docs/multiplayer/architecture.md` has the
  * determinism requirements this preserves.
  */
 

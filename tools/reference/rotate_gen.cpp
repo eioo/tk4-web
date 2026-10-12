@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Derived from Tapan Kaikki 4 (GPLv2); see LICENSE.
+
 // Reference oracle for the asset-generation routines in CGraphicsGenerator.
 // The implementations live in tkreference.h (near-verbatim copies of the
 // original C++); this file is just a CLI.

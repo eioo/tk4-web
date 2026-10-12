@@ -1,4 +1,4 @@
-# 01 — Game Overview
+# Game Overview
 
 ## What the game is
 
@@ -7,11 +7,11 @@ goal is to "kill everything that moves". It is a fork of the open-source release
 Tapan Kaikki 4, ported to Linux/macOS and converted to CMake. Version `4.09`
 (`CMakeLists.txt`), game type/bullet data in `src/common/types.cpp`.
 
-- Camera: top-down, follows the player lazily (see doc 05).
+- Camera: top-down, follows the player lazily (see [Rendering Pipeline](rendering-pipeline.md)).
 - Presentation: 8-bit indexed software rendering, 16-bit SDL surface (`KBitDepth=16`).
 - Simulation: fixed **100 Hz** tick (`KTimerFreq=100`).
 - Levels: hand-authored 20 px grid maps with pseudo-3D walls of height 0–5, spots,
-  steam vents, crates and enemies (doc 07).
+  steam vents, crates and enemies ([Level Format](level-format.md)).
 - Players: 1–4 local, split-screen up to 4 viewports; up to 16 players exist internally.
 
 ## Game modes
@@ -32,7 +32,7 @@ DM uses its own episodes/crates (`dm.lev` and `DMEpisodes`).
 `SDLNet_Init`/`SDLNet_Quit` and an HTTP GET client used by the version checker; the
 IPX/NetWare code is commented out and all send/receive functions are no-ops. "Multiplayer"
 in practice = local split-screen. The web port implements that split-screen (up to four
-players) and deathmatch (docs/12 M11/M12); playable netplay is a **greenfield** addition
+players) and deathmatch ([Implementation Plan](implementation-plan.md) M11/M12); playable netplay is a **greenfield** addition
 (WebRTC/WebSocket, M13), not a port of the dead code.
 
 ## Campaign flow (cooperative)

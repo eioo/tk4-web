@@ -1,4 +1,7 @@
-// Reference oracle for the M3 simulation (player movement, shooting, bullets).
+// SPDX-License-Identifier: GPL-2.0-only
+// Derived from Tapan Kaikki 4 (GPLv2); see LICENSE.
+
+// Reference oracle for the simulation (player movement, shooting, bullets).
 // The algorithms live in simreference.h (near-verbatim copies of the original);
 // this file is the CLI.
 //
@@ -96,7 +99,7 @@ static bool ReadLevelDump(Level& lv, const char* path) {
 		CoordI c; c.x = readI32(); c.y = readI32(); lv.iPlStart.push_back(c);
 	}
 
-	// ---- M4 section ----
+	// ---- entity section ----
 	readI32(); // timeLimit (unused by the sim)
 	for (int a = 0; a < 10; a++) lv.iGeneralEnemies[a] = readI32();
 	unsigned int enemyCount = readU32();

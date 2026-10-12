@@ -1,5 +1,5 @@
 /**
- * Deterministic replay harness for M3 (docs 13). Defines a fixed scripted
+ * Deterministic replay harness (docs/parity-testing-and-risks.md). Defines a fixed scripted
  * input for a level, serialises it in the format `tools/reference/sim_gen.cpp`
  * reads, and serialises the resulting per-tick state trace in the format the
  * oracle writes — so the two can be compared byte-for-byte.

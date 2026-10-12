@@ -3,7 +3,7 @@
  * (`CGraphicsBuffer::LoadEFP/LoadEFP2/LoadPCX/LoadSCI`).
  *
  * All produce a raw 8-bit index buffer; palettes are returned in their stored
- * (0..63) form unless noted. See docs/06-asset-formats.md.
+ * (0..63) form unless noted. See docs/asset-formats.md.
  */
 
 import { paletteFromFileTail, type Palette } from "./palette";

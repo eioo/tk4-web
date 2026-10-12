@@ -1,4 +1,4 @@
-# 09 — UI, Flow & Controls
+# UI, Flow & Controls
 
 Sources: `src/Menu.cpp`, `src/MenuItems.cpp`, `src/CGameMenu*.cpp`,
 `src/CGameSubState*.cpp`, `src/CGUIState*.cpp`, `src/COptions.cpp`, `src/texts.cpp`,
@@ -45,7 +45,7 @@ multiplayer
   `leave lobby`/Escape leaves the room.
 
 Online player names come from Options → Player 1 (`options.data.name[0]`). See
-[`docs/multiplayer/06-ui-menus.md`](multiplayer/06-ui-menus.md).
+[`docs/multiplayer/ui-menus.md`](multiplayer/ui-menus.md).
 
 ### Options menu
 
@@ -102,13 +102,13 @@ DM speed `KPlayerRunSpeed=1.0`, `iEnemiesOnGame=true`.
 |-----------|--------|---------------------|
 | `NextLevel` | `CGameSubStateNextLevel` | `SetupLevelStart()`; loads level, places players/enemies/crates; → `LevelInfo` (or `OnGoing` for client) |
 | `LevelInfo` | `CGameSubStateLevelInfo` | Shows level number, comment, enemy kill list, time limit; any key → `Shop` if shop enabled else `OnGoing`; Esc → `Quit` |
-| `OnGoing` | `CGameSubStateOngoing` | Main gameplay loop (doc 02) |
+| `OnGoing` | `CGameSubStateOngoing` | Main gameplay loop ([Engine Architecture](engine-architecture.md)) |
 | `Shop` | `CGameSubStateShop` | Buy/sell weapons, ammo, shield, target system |
 | `Statistics` | `CGameSubStateStatistics` | Per-player results, time bonus, money; → next `NextLevel`/`Victory` or menu |
 | `Victory` | `CGameSubStateVictory` | Episode complete; any key → menu |
 | `Quit` | `CGameSubStateQuit` | In-game "Quit?" confirm (y) |
 
-Transitions are asserted in `CGameState.cpp` (doc 02).
+Transitions are asserted in `CGameState.cpp` ([Engine Architecture](engine-architecture.md)).
 
 **Overlays and frames.** The original never clears the draw buffer between states: it
 only redraws dirty areas, so `CGUIStateQuit` (main-menu quit) and `CGameSubStateQuit`
@@ -136,7 +136,7 @@ Backspace/P1-Shift sell, PageUp buy 25, PageDown sell 25, Esc done. Weapon capac
 Per player: kills by enemy type (`CGameStatisticsData`), frags (DM), total kills,
 accuracy = `100*hit/shot`, cash. Time bonus = `(timeLimit - completeTime)*5`, clamped
 `>=-500`, zeroed on quit/game-over. Then `iCash += reward(type)*kills[type]` per enemy
-type (rewards in doc 04), clamped ≥ 0.
+type (rewards in [Enemy AI](enemy-ai.md)), clamped ≥ 0.
 
 ## HUD, message board, texts
 
@@ -145,7 +145,7 @@ type (rewards in doc 04), clamped ≥ 0.
   suicides, version-check results. Drawn top-left in the small font.
 - **Frag / suicide texts**: from `default.ini` (`FragText[]`, `SuicideText[]`),
   selected with `rand()%size`. Used when a bullet kills a player.
-- **HUD** elements listed in doc 05.
+- **HUD** elements listed in [Rendering Pipeline](rendering-pipeline.md).
 - **texts.cpp**: key labels (`k_text[EKeyAmount]`), music extensions, `options.cfg`
   name, `off/on`, quit-confirm text, default music theme.
 - **lists.cpp**: enumerates `levs/` subfolders as episodes/DM episodes, and `music/`
@@ -184,4 +184,4 @@ add gamepad as an option, but it is not part of 1:1 behaviour.
   `tklogo.efp`, `splash.bmp`, `victory.pcx/bmp`.
 - Shop backdrop: `shopback_normal/hilite/hollow.efp` (640×480), `shop.efp`, `ware.efp`.
 - Statistics backdrop: `staticsback.efp` (640×480).
-- Fonts in `fnts/` (doc 06).
+- Fonts in `fnts/` ([Asset Formats](asset-formats.md)).

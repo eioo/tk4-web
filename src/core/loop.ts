@@ -5,7 +5,7 @@
  * (`KTimerFreq = 100` in the original) driven from display frames, with a
  * catch-up loop when a display frame is slow.
  *
- * See docs/02-engine-architecture.md and docs/10-web-port-architecture.md.
+ * See docs/engine-architecture.md and docs/web-port-architecture.md.
  */
 
 /** Default simulation tick rate, in Hz (`KTimerFreq` in the original). */

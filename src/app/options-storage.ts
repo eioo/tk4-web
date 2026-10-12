@@ -20,7 +20,7 @@ import {
   TPlayerKeys,
 } from "./options";
 
-/** Versioned storage key (docs/12 recommends pinning a version). */
+/** Versioned storage key (pin the version). */
 export const OPTIONS_STORAGE_KEY = "tk4-web.options.v1";
 const OPTIONS_VERSION = 1;
 

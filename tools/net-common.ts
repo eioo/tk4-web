@@ -3,7 +3,7 @@
  * and the production host (`tools/serve.ts`). Translates Bun socket events into
  * the transport-free `RoomManager` (`src/net/room.ts`).
  *
- * Design: `docs/multiplayer/03-server.md`.
+ * Design: `docs/multiplayer/server.md`.
  */
 
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";

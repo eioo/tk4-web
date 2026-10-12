@@ -1,4 +1,4 @@
-# 05 — Game flow
+# Game flow
 
 How an online match walks the existing single-player/coop flow, and what changes
 to keep every client on the same path.

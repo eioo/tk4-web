@@ -1,4 +1,4 @@
-# 05 — Rendering Pipeline
+# Rendering Pipeline
 
 The original is an **8-bit palette-indexed software rasteriser** presenting to a
 16-bit SDL surface. Reproducing it exactly means porting this pipeline, not
@@ -184,6 +184,6 @@ This pipeline must be reproduced in TypeScript:
 
 1. 8-bit index buffer + global palette + `palette.tab` tables + light maps.
 2. The exact draw order and per-primitive offsets above.
-3. The `RotateSprites` generation (doc 11) to build character sheets.
-4. Present the finished index buffer as one canvas/GPU frame (doc 10) — there is no
+3. The `RotateSprites` generation ([Asset Pipeline](asset-pipeline.md)) to build character sheets.
+4. Present the finished index buffer as one canvas/GPU frame ([Web Port Architecture](web-port-architecture.md)) — there is no
    per-entity rendering stage.

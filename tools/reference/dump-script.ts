@@ -1,5 +1,5 @@
 /**
- * Dev-only helper: writes the M3 replay script in the binary format the C++
+ * Dev-only helper: writes the replay script in the binary format the C++
  * simulation oracle (`tools/reference/sim_gen.cpp`) consumes.
  *
  *   bun run tools/reference/dump-script.ts <script.bin>

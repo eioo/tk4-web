@@ -1,4 +1,4 @@
-# 01 — Architecture
+# Architecture
 
 ## 1. Model: deterministic lockstep
 
@@ -64,7 +64,7 @@ single-player (the parity harness proves it); netplay must not break them:
    inside the sim. In online mode every client assigns the **same** single
    full-screen rect to every seat, so the sim can't diverge on it. (This is why
    online renders one view even though all seats are simulated.)
-5. **No render RNG in the sim.** Already true (docs/13). `renderRng` stays a
+5. **No render RNG in the sim.** Already true ([Parity, Testing & Risks](../parity-testing-and-risks.md)). `renderRng` stays a
    separate stream.
 6. **Deterministic float math.** All the `f32` sites and trig tables from M9 stay
    as they are; netplay adds no new float paths to the sim except the per-seat
@@ -121,7 +121,7 @@ deliberate, non-parity extension.
 In scope: online lobby, host/join by code, coop full-episode progression, online
 deathmatch with a frag limit, host migration, idle seats.
 
-Prediction + rollback (docs 09) sits on top of this determinism so the local
+Prediction + rollback ([Netcode Prediction](netcode-prediction.md)) sits on top of this determinism so the local
 seat reacts without a round trip; the wire still carries inputs only.
 
 Out of scope for v1 (documented so we don't creep):

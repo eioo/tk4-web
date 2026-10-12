@@ -1,6 +1,6 @@
 /**
  * Shared engine constants. Values are copied from the original headers
- * (docs/02-engine-architecture.md, docs/05-rendering-pipeline.md).
+ * (docs/engine-architecture.md, docs/rendering-pipeline.md).
  */
 
 /** Size of one level block / tile, in pixels. */

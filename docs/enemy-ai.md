@@ -1,4 +1,4 @@
-# 04 — Enemy AI
+# Enemy AI
 
 Source: `src/CEnemy.cpp`, `src/common/CEnemyBase.cpp`, `src/common/types.cpp`.
 
@@ -80,7 +80,7 @@ smokes.
     `int(ApproxDistance/Speed)` ticks, → `EAssault`.
   - Non-hostile: turn along the bullet (`iTargetAngle = bullet.Angle()`), flee,
     → `EWanderAround`.
-  - The hit also applies push/burning/damage (doc 03).
+  - The hit also applies push/burning/damage ([Simulation & Physics](simulation-and-physics.md)).
 - **Sound** (`SoundHeard`, invoked from the sound player): non-hostile ignores; already
   `EAssault` ignores; `ESoundEffectClick` ignored. If
   `GetDist < SightDistance && VisibilityCheck` → `EAssault`, `iTargetAngle` toward the

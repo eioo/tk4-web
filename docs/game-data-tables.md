@@ -1,4 +1,4 @@
-# 08 — Game Data Tables
+# Game Data Tables
 
 Authoritative source: `src/common/types.cpp` (values) and
 `src/common/CGameTypeData.cpp` (registration). These values **must** be copied
@@ -64,7 +64,7 @@ multipliers, `iAfterDeathEffect`. Defaults: `iLightOLMul=1`, `iHeavyOLMul=1`,
 
 ## Enemies
 
-See doc 04 for the full enemy stat table.
+See [Enemy AI](enemy-ai.md) for the full enemy stat table.
 
 ## Weapons (`CWeaponBase`)
 
@@ -129,4 +129,4 @@ Bounce types: `KBounceTypeNone`, `KBounceTypeNormal`, `KBounceTypeFollowWall`.
 - `ApproxDistance` (used by enemy AI) and `Multiplier` come from `CBulletBase`; verify
   their formulas in `src/common/CBulletBase.h`/`.cpp` when implementing AI range checks.
 - `iOrder` splits effects into a low layer (drawn before crates/actors) and a high
-  layer (drawn after shadows), matching the draw order in doc 05.
+  layer (drawn after shadows), matching the draw order in [Rendering Pipeline](rendering-pipeline.md).

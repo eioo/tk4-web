@@ -1,5 +1,5 @@
 /**
- * Presentation-path performance budget (docs/13). The browser does the final
+ * Presentation-path performance budget (docs/parity-testing-and-risks.md). The browser does the final
  * blit (`putImageData` for Canvas2D, a palette-shader draw for WebGL), which we
  * cannot time in Bun; what we *can* time headlessly is the per-frame CPU the
  * port owns: the index→RGBA conversion and the frame compose. Budgets leave

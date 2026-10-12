@@ -100,7 +100,7 @@ function placePlayersForLevel(world: SimWorld, players: SimPlayer[]): void {
       let newX = posX;
       let newY = posY;
       // `CCoord::Set(x, y)` — g++ evaluates the trailing argument first, so the
-      // y jitter draws before the x jitter (docs/13).
+      // y jitter draws before the x jitter (docs/parity-testing-and-risks.md).
       let addY = 0;
       let addX = 0;
       if (tries > 0 && tries < 9) {
@@ -135,7 +135,7 @@ function placePlayersForLevel(world: SimWorld, players: SimPlayer[]): void {
   }
 }
 
-/** Mode/option values the session needs from `App` (docs/12 M12). */
+/** Mode/option values the session needs from `App`. */
 export interface ModeOptions {
   /** `iEnemiesOnGame` — with `DisableEnemiesPossible()` decides enemy spawning. */
   enemiesOnGame: boolean;

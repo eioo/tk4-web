@@ -1,4 +1,4 @@
-# 14 — Tooling & Environment
+# Tooling & Environment
 
 ## Needed for the web port itself
 
@@ -30,15 +30,23 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 | `bun run fmt` | Format (`oxfmt`) |
 | `bun run fmt:check` | Check formatting without writing |
 | `bun run reference` | Build the standalone C++ oracles (`/tmp/{rotate,render,sim}_gen`) |
-| `bun run parity` | Build the oracles and diff every scenario trace + static frame (doc 13) |
-| `bun run perf` | Time the presentation-path CPU against its 60 fps budget (doc 13) |
+| `bun run parity` | Build the oracles and diff every scenario trace + static frame ([Parity, Testing & Risks](parity-testing-and-risks.md)) |
+| `bun run perf` | Time the presentation-path CPU against its 60 fps budget ([Parity, Testing & Risks](parity-testing-and-risks.md)) |
 | `bun run serve` | Host an existing `dist/` build (`Bun.serve`; `--port`/`--host`, default `0.0.0.0:4173`) |
-| `bun run start` | Ensure assets, `bun run build`, then serve — the production command (doc 10) |
+| `bun run start` | Ensure assets, `bun run build`, then serve — the production command ([Web Port Architecture](web-port-architecture.md)) |
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to
+`master` and on every pull request: `bun install --frozen-lockfile`, then
+`bun run typecheck`, `bun run lint`, `bun run fmt:check`, `bun test` and
+`bun run build`. Parity (`bun run parity`) is deliberately **not** in CI — it compiles
+the C++ oracle and needs `g++` — so run it locally whenever simulation code changes.
 
 ## Needed to build & run the ORIGINAL (the "reference oracle")
 
 **Strongly recommended early.** A running original lets us capture golden screenshots and
-state traces, and resolves format ambiguities (see doc 13). The original uses **SDL 1.2**
+state traces, and resolves format ambiguities (see [Parity, Testing & Risks](parity-testing-and-risks.md)). The original uses **SDL 1.2**
 (not SDL2) plus SDL_image, SDL_mixer, SDL_net.
 
 Debian/Ubuntu package names:

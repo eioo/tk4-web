@@ -1,4 +1,4 @@
-# 06 — UI and menus
+# UI and menus
 
 New screens hang off the existing `MenuContainer` tree. All of this is
 non-parity; single-player/split-screen menus keep their current paths.

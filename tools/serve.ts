@@ -46,7 +46,7 @@ const MIME: Readonly<Record<string, string>> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".woff2": "font/woff2",
-  // Original game data (docs 06/07/11) — served as opaque bytes.
+  // Original game data (docs/asset-formats.md, docs/level-format.md, docs/asset-pipeline.md) — served as opaque bytes.
   ".efp": "application/octet-stream",
   ".pcx": "application/octet-stream",
   ".lev": "application/octet-stream",

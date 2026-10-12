@@ -1,4 +1,4 @@
-# 02 — Engine Architecture
+# Engine Architecture
 
 Source root: `tapankaikki4/src/`. Shared code in `src/common/`.
 
@@ -49,7 +49,7 @@ while (iState->MainState() != EMainStateConfirmedQuit) {
 Key points:
 
 - **Presentation is event-driven per display frame**, not per simulation tick.
-- `RunFrame` for an in-game state runs a **fixed-tick catch-up loop** (see doc 03).
+- `RunFrame` for an in-game state runs a **fixed-tick catch-up loop** (see [Simulation & Physics](simulation-and-physics.md)).
 - Output only blits dirty rectangles (`CDrawArea`), but in-game the whole buffer is
   marked dirty every frame, so effectively full-screen presentation.
 - Screen transitions (`StartFadeIn`/`StartFadeOut`/`StartZoomOut`) replace normal
@@ -64,7 +64,7 @@ Key points:
 - Timers throughout the game are stored as `TimerCounter` snapshots and compared by
   subtraction; `TIMER_SECS(t) = (TimerCounter - t) / KTimerFreq`.
 
-The port replaces the SDL timer with a fixed-step accumulator (doc 10).
+The port replaces the SDL timer with a fixed-step accumulator ([Web Port Architecture](web-port-architecture.md)).
 
 ## States
 

@@ -1,7 +1,7 @@
 /**
  * `.lev` level decoder — old (flat, version ≤ 8) and new (chunked, version > 8)
  * formats, plus the derived maps computed on load. Port of `CLevel` in
- * `common/CLevel.cpp`. See docs/07-level-format.md.
+ * `common/CLevel.cpp`. See docs/level-format.md.
  */
 
 import { KBlockSpriteSize, KLastOldFormatVersion, KMaxPlayers } from "./constants";

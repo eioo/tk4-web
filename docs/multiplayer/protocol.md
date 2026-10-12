@@ -1,11 +1,11 @@
-# 02 — Wire protocol
+# Wire protocol
 
 JSON over one WebSocket per client. Every message is an object with a
 discriminant field `t`. Binary framing is a possible later optimisation; at
 100 Hz with ≤4 seats the JSON bundles are well under 1 KB/s down, so v2 stays
 readable.
 
-Clients predict ahead and roll back (docs 09), so inputs are **tick-stamped**
+Clients predict ahead and roll back ([Netcode Prediction](netcode-prediction.md)), so inputs are **tick-stamped**
 and the server echoes a `pong` for round-trip estimation.
 
 `s` = client→server, `c` = server→client.
@@ -94,7 +94,7 @@ moment the roster is full, `room-full` is only a defensive error.
 ```json
 { "t": "input", "tick": 137, "keys": 8, "mouseXRel": 3, "mouseButtons": 0 }
 ```
-One seat's predicted input for tick `tick` (docs 09). The server emits tick *T*
+One seat's predicted input for tick `tick` ([Netcode Prediction](netcode-prediction.md)). The server emits tick *T*
 with the input stamped *T*, using a zero input if none arrived; inputs for
 already-emitted ticks or more than `KMAX_INPUT_LOOKAHEAD` ahead are dropped.
 Because clients predict ahead by ~one RTT, an input normally arrives before the
@@ -212,7 +212,7 @@ and input routing.
 One entry per seat, in seat order, for the stamped tick. Idle/disconnected seats
 and seats whose input has not arrived get a zero input. Emitted at 100 Hz while
 `playing`. Clients buffer these and reconcile their prediction against them
-(docs 09).
+([Netcode Prediction](netcode-prediction.md)).
 
 ### `c.pong`
 ```json

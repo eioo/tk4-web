@@ -1,15 +1,15 @@
 # Online multiplayer (netplay)
 
-Greenfield online play for the browser port, built on **deterministic lockstep**
-over **Bun WebSockets**. This directory is the design + implementation plan.
-Nothing here changes the parity goal of the port: single-player, split-screen and
-the reference oracles are untouched. Netplay is explicitly **non-parity**.
+Online play for the browser port, built on **deterministic lockstep** over **Bun
+WebSockets** with client-side prediction and rollback. The design keeps the parity
+goal of the port intact: single-player, split-screen and the reference oracles are
+untouched. Netplay is explicitly **non-parity**.
 
-> Status: **N1–N4 implemented** on branch `online-multiplayer` (protocol + room
-> manager + Bun WS servers; client transport and the multiplayer/host/join/lobby
-> menus; the online match with prediction + rollback, per-seat mouse,
-> single-view rendering, episode progression, DM frag limit, host migration).
-> See [07-implementation-plan.md](07-implementation-plan.md).
+> Status: **implemented** — protocol + room manager + Bun WS servers; client
+> transport and the multiplayer/host/join/lobby menus; the online match with
+> prediction + rollback, per-seat mouse, single-view rendering, episode
+> progression, DM frag limit and host migration. See the
+> [Implementation Plan](implementation-plan.md).
 
 ## Decisions
 
@@ -17,7 +17,7 @@ the reference oracles are untouched. Netplay is explicitly **non-parity**.
 | --- | --- |
 | Transport | Bun WebSockets (`Bun.serve`), JSON messages (protocol v2) |
 | Netcode | Deterministic shared world; server is lobby + tick master + input relay, **no simulation** |
-| Latency | Client-side prediction + rollback: instant local movement, remote seats ~1 RTT behind (docs 09) |
+| Latency | Client-side prediction + rollback: instant local movement, remote seats ~1 RTT behind ([Netcode Prediction](netcode-prediction.md)) |
 | Controls | Per-seat mouse: each client's mouse drives only its own player |
 | Match scope | Full episode progression (coop); statistics and shop online |
 | Between levels | All players "ready" barrier |
@@ -31,15 +31,15 @@ the reference oracles are untouched. Netplay is explicitly **non-parity**.
 
 ## Docs
 
-1. [01-architecture.md](01-architecture.md) — lockstep model, authority split, determinism requirements
-2. [02-protocol.md](02-protocol.md) — every client/server message and its sequencing
-3. [03-server.md](03-server.md) — Bun WS server, rooms, codes, tick master, host migration
-4. [04-client.md](04-client.md) — transport, input sampling, prediction + rollback
-5. [05-game-flow.md](05-game-flow.md) — phase machine from lobby through progression
-6. [06-ui-menus.md](06-ui-menus.md) — new screens, menu states, items, lobby UI
-7. [07-implementation-plan.md](07-implementation-plan.md) — milestones N1–N4 with acceptance criteria
-8. [08-testing-and-risks.md](08-testing-and-risks.md) — tests, determinism checks, hazards
-9. [09-netcode-prediction.md](09-netcode-prediction.md) — prediction, tick numbering, rollback, snapshots
+1. [Architecture](architecture.md) — lockstep model, authority split, determinism requirements
+2. [Protocol](protocol.md) — every client/server message and its sequencing
+3. [Server](server.md) — Bun WS server, rooms, codes, tick master, host migration
+4. [Client](client.md) — transport, input sampling, prediction + rollback
+5. [Game Flow](game-flow.md) — phase machine from lobby through progression
+6. [UI Menus](ui-menus.md) — new screens, menu states, items, lobby UI
+7. [Netcode Prediction](netcode-prediction.md) — prediction, tick numbering, rollback, snapshots
+8. [Testing & Risks](testing-and-risks.md) — tests, determinism checks, hazards
+9. [Implementation Plan](implementation-plan.md) — milestones N1–N5 with acceptance criteria
 
 ## Glossary
 
@@ -58,7 +58,8 @@ the reference oracles are untouched. Netplay is explicitly **non-parity**.
 
 The port's simulation is byte-exact deterministic: glibc `rand()`, fixed 100 Hz,
 `Math.fround`-pinned float sites, trig lookup tables, and a *separate* render RNG
-so drawing never perturbs the sim (docs/13). That is the single most valuable
-asset here. Syncing *inputs* across clients instead of *world state* reuses it
+so drawing never perturbs the sim
+([Parity, Testing & Risks](../parity-testing-and-risks.md)). That is the single most
+valuable asset here. Syncing *inputs* across clients instead of *world state* reuses it
 directly: bandwidth is tiny, there is no snapshot/interpolation layer, and the
 existing `SimWorld` runs unchanged for every seat.

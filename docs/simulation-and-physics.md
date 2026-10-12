@@ -1,4 +1,4 @@
-# 03 — Simulation & Physics
+# Simulation & Physics
 
 Everything here runs once per **tick at 100 Hz**. Velocities/constants are therefore
 "per tick" unless stated. Units are **pixels**; angles are **degrees** (0–359, 0 = +X,
@@ -17,7 +17,7 @@ clockwise on screen because Y grows downward). `ANGLEFIX(a)` normalises into
 
 ## Tick model
 
-- One tick = one `PerFrameCalc` iteration (see doc 02 for exact order).
+- One tick = one `PerFrameCalc` iteration (see [Engine Architecture](engine-architecture.md) for exact order).
 - Movement, timers and animation counters all advance by 1 per tick.
 - `TimerCounter` is the global tick counter.
 
@@ -164,7 +164,7 @@ and recomputes angle/speed from the vector.
   energy −= dmg; on `<= 0` either burns (explosions) or spawns 16 blood bursts +
   death sound; records death stats; `iDead = 1`; death animation runs
   `KDeadAnimationDelay = 75` ticks then `CharacterDied` fires.
-- `CEnemy::GetDamage`: see doc 04.
+- `CEnemy::GetDamage`: see [Enemy AI](enemy-ai.md).
 - `iBurning` handled by `CCharacter::CheckBurning`: `iBurning--`; steam and flame
   effects throttled via `SteamAnimationCount(15)` / `(mod 2|3)`; deals `0.1` damage
   per tick while burning.
@@ -176,8 +176,8 @@ and recomputes angle/speed from the vector.
   glibc-`rand()`-compatible PRNG plus the same seed.
 - RNG call sites and their **order** matter. Notable setup order:
   players → fixed enemies → random enemies → random crates → DM random player place.
-  Per-tick order is defined by the update sequence in doc 02 and the call sites in
-  doc 13 (which lists them exhaustively).
+  Per-tick order is defined by the update sequence in [Engine Architecture](engine-architecture.md) and the call sites in
+  [Parity, Testing & Risks](parity-testing-and-risks.md) (which lists them exhaustively).
 - **Hazards for exact parity:**
   - C++ argument evaluation order inside multi-`rand()` expressions is unspecified
     (e.g. `Explo`, `CBullet` blood, `CheckBurning`). The port must match a specific
@@ -187,4 +187,4 @@ and recomputes angle/speed from the vector.
   - Catch-up ticks consume RNG based on wall-clock pacing; parity is best verified in
     a fixed-tick replay (no catch-up), as the port does.
 
-See doc 13 for the full RNG call inventory and the reference-capture methodology.
+See [Parity, Testing & Risks](parity-testing-and-risks.md) for the full RNG call inventory and the reference-capture methodology.
