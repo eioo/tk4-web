@@ -55,6 +55,28 @@ export const enum BounceType {
   FollowWall,
 }
 
+/** `TIngameSoundEffect` (`common/defines.h`). */
+export const enum SoundEffect {
+  NoSound = -1,
+  Pistol = 0,
+  Shotgun,
+  Uzi,
+  Autorifle,
+  Bazooka,
+  Hit,
+  SmallExplosion,
+  Explosion,
+  BigExplosion,
+  Click,
+  Death,
+  Woosh,
+  Flame,
+  MetalHit,
+  GrenadeLauncher,
+  KickHead,
+  Amount,
+}
+
 /** Effect ids (`TEffect`). -1 = no effect. */
 export const enum EffectId {
   None = -1,
@@ -113,6 +135,8 @@ export interface BulletType {
   effect: EffectId;
   effect2: EffectId;
   effectKind: EffectKind;
+  /** `CBulletBase::BounceSound` — played when the bullet bounces off a wall. */
+  bounceSound: SoundEffect;
 }
 
 /** `CBulletBase` defaults, then the overrides from `types.cpp`. */
@@ -148,6 +172,7 @@ function bullet(overrides: Partial<BulletType>): BulletType {
     effect: EffectId.None,
     effect2: EffectId.None,
     effectKind: EffectKind.Default,
+    bounceSound: SoundEffect.NoSound,
     ...overrides,
   };
 }
@@ -316,6 +341,7 @@ export const BulletTypes: readonly BulletType[] = [
     cost: 60,
     amountInCrate: 10,
     maximumForPlayer: 100,
+    bounceSound: SoundEffect.MetalHit,
   }),
   bullet({
     name: "Explosive ray",
@@ -345,6 +371,8 @@ export interface WeaponType {
   bulletType: BulletId;
   priority: number;
   consumesBullets: boolean;
+  /** `CWeaponBase::Sound` — played when firing. */
+  sound: SoundEffect;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,19 +413,91 @@ export interface BodyPartType {
   bounce: boolean;
   dropBlood: boolean;
   spriteOffset: number;
+  /** `CBodyPartBase::Sound` — played on kick/hit. */
+  sound: SoundEffect;
 }
 
 export const BodyPartTypes: readonly BodyPartType[] = [
-  { slow: -0.04, kickspeed: 3.8, bounce: true, dropBlood: true, spriteOffset: 0 }, // Head
-  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 21 }, // Arm
-  { slow: -0.07, kickspeed: 2.5, bounce: false, dropBlood: true, spriteOffset: 42 }, // Chest
-  { slow: -0.06, kickspeed: 2.5, bounce: false, dropBlood: true, spriteOffset: 63 }, // Entrails
-  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 84 }, // LeftLeg
-  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 105 }, // RightLeg
-  { slow: -0.05, kickspeed: 2.8, bounce: false, dropBlood: true, spriteOffset: 126 }, // Shit
-  { slow: -0.05, kickspeed: 3.0, bounce: false, dropBlood: false, spriteOffset: 252 }, // BurnedChest
-  { slow: -0.04, kickspeed: 4.0, bounce: true, dropBlood: false, spriteOffset: 273 }, // Skull
-  { slow: -0.05, kickspeed: 3.0, bounce: false, dropBlood: false, spriteOffset: 294 }, // Bones
+  {
+    slow: -0.04,
+    kickspeed: 3.8,
+    bounce: true,
+    dropBlood: true,
+    spriteOffset: 0,
+    sound: SoundEffect.KickHead,
+  }, // Head
+  {
+    slow: -0.05,
+    kickspeed: 2.8,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 21,
+    sound: SoundEffect.Hit,
+  }, // Arm
+  {
+    slow: -0.07,
+    kickspeed: 2.5,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 42,
+    sound: SoundEffect.Hit,
+  }, // Chest
+  {
+    slow: -0.06,
+    kickspeed: 2.5,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 63,
+    sound: SoundEffect.Hit,
+  }, // Entrails
+  {
+    slow: -0.05,
+    kickspeed: 2.8,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 84,
+    sound: SoundEffect.Hit,
+  }, // LeftLeg
+  {
+    slow: -0.05,
+    kickspeed: 2.8,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 105,
+    sound: SoundEffect.Hit,
+  }, // RightLeg
+  {
+    slow: -0.05,
+    kickspeed: 2.8,
+    bounce: false,
+    dropBlood: true,
+    spriteOffset: 126,
+    sound: SoundEffect.Hit,
+  }, // Shit
+  {
+    slow: -0.05,
+    kickspeed: 3.0,
+    bounce: false,
+    dropBlood: false,
+    spriteOffset: 252,
+    sound: SoundEffect.KickHead,
+  }, // BurnedChest
+  {
+    slow: -0.04,
+    kickspeed: 4.0,
+    bounce: true,
+    dropBlood: false,
+    spriteOffset: 273,
+    sound: SoundEffect.KickHead,
+  }, // Skull
+  {
+    slow: -0.05,
+    kickspeed: 3.0,
+    bounce: false,
+    dropBlood: false,
+    spriteOffset: 294,
+    sound: SoundEffect.KickHead,
+  }, // Bones
 ];
 
 /** `IEffectType` / `CEffectBase` + the effect types. */
@@ -770,12 +870,19 @@ function weapon(overrides: Partial<WeaponType>): WeaponType {
     bulletType: BulletId.Fist,
     priority: 0,
     consumesBullets: true,
+    sound: SoundEffect.NoSound,
     ...overrides,
   };
 }
 
 export const WeaponTypes: readonly WeaponType[] = [
-  weapon({ name: "Fist", loadingTime: 25, priority: 1, consumesBullets: false }),
+  weapon({
+    name: "Fist",
+    loadingTime: 25,
+    priority: 1,
+    consumesBullets: false,
+    sound: SoundEffect.Hit,
+  }),
   weapon({
     name: "Pistol",
     sprite: 1,
@@ -787,6 +894,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.B9mm,
     priority: 2,
+    sound: SoundEffect.Pistol,
   }),
   weapon({
     name: "Shotgun",
@@ -799,6 +907,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.Shell,
     priority: 3,
+    sound: SoundEffect.Shotgun,
   }),
   weapon({
     name: "Uzi",
@@ -811,6 +920,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.B9mm,
     priority: 4,
+    sound: SoundEffect.Uzi,
   }),
   weapon({
     name: "Auto Rifle",
@@ -822,6 +932,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.B12mm,
     priority: 5,
+    sound: SoundEffect.Autorifle,
   }),
   weapon({
     name: "Rocket Launcher",
@@ -832,6 +943,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.MediumRockets,
     priority: 0,
+    sound: SoundEffect.Bazooka,
   }),
   weapon({
     name: "Auto Launcher",
@@ -842,6 +954,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.LightRockets,
     priority: 0,
+    sound: SoundEffect.Bazooka,
   }),
   weapon({
     name: "Heavy Launcher",
@@ -852,6 +965,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.HeavyRockets,
     priority: 0,
+    sound: SoundEffect.Bazooka,
   }),
   weapon({
     name: "Auto Shotgun",
@@ -864,6 +978,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.Shell,
     priority: 6,
+    sound: SoundEffect.Shotgun,
   }),
   weapon({
     name: "C4-Activator",
@@ -882,6 +997,7 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.Gas,
     priority: 4,
+    sound: SoundEffect.Flame,
   }),
   weapon({
     name: "Mine Dropper",
@@ -901,5 +1017,6 @@ export const WeaponTypes: readonly WeaponType[] = [
     gun: true,
     bulletType: BulletId.Grenades,
     priority: 0,
+    sound: SoundEffect.GrenadeLauncher,
   }),
 ];
