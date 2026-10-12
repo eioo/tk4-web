@@ -100,19 +100,6 @@ export const PAN_MIDDLE: Pan = { left: 128, right: 128 };
 type Loader = (path: string) => Promise<Uint8Array>;
 
 /**
- * A single audible event from the simulation or UI. Positional events are
- * panned around the observer; flat events (menu clicks, the local player's own
- * death) play centred.
- */
-export interface SoundEvent {
-  effect: SoundEffect;
-  volume: number;
-  x: number;
-  y: number;
-  positional: boolean;
-}
-
-/**
  * `CSoundPlayer`. The `AudioContext` is created lazily; browsers start it
  * suspended until a user gesture, so `resume()` must be called from an input
  * handler.

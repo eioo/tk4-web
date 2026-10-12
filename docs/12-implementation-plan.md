@@ -227,6 +227,33 @@ options, click sfx in menus.
 respect options. (Audio parity is perceptual; verify against the reference by ear and by
 trigger trace.)
 
+**Status:** in. `src/audio/sound.ts` is `CSoundPlayer` — the `StereoShaper`
+pan maths (unit-tested) plus a WebAudio player (per-shot `GainNode` +
+`StereoPannerNode`, 16 decoded effects). `src/audio/music.ts` is the music side
+(`KMusicFilenameExtensions` resolution, `ForceSoundTrack`/song-number counter,
+looping playback with the original fade times). `src/sim/types.ts` carries the
+`TIngameSoundEffect` table and the per-weapon/bullet/body-part sound fields.
+
+Every `PlayPosSample`/`PlaySample` call site in the original is mirrored in
+`src/sim/world.ts`: weapon fire (player and enemy), bullet bounce and fist hit,
+body-part bounce and kick, enemy/player death (and the burning woosh),
+`CDynGameData::Explo` explosion sizes, and crate pickup. Positional samples also
+run `CEnemy::SoundHeard` (hostile enemies within sight distance with line of
+sight go to `Assault`), matching `CGameSubStateOngoing::SoundHeard`. `App`
+drains `world.sounds` each tick and pans them around the local player.
+
+Music follows the reference state machine: menu music from the first logo and
+on entering Statistics, per-level game music on `OnGoing` (from the merged
+level config), stopped by the menu music when a level ends. Volumes/theme/
+reverse-stereo come from `COptionsData` (`applyAudioOptions`, invoked by the
+audio options menu's `updateAudioChanges`), and the menu/shop play the click
+sample. Effects are decoded from the merged `default.ini` at boot; music assets
+are copied by `bun run assets --with-music`.
+
+⚠️ The parity oracle does not model `CEnemy::SoundHeard` yet, so the replay
+harness disables hearing to stay byte-comparable (docs/13); the shipped replay
+scenario does not otherwise trigger it.
+
 ---
 
 ## M8 — Options & persistence

@@ -112,6 +112,11 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   and push but is never moved (the original would move it on its own client). Fine for
   single-machine traces; multiplayer (split-screen and WebRTC/WebSocket netplay) is
   deferred to a later milestone.
+- **`CEnemy::SoundHeard` is not in the oracle.** The port plays positioned samples and
+  lets hostile enemies within sight distance hear them (docs/04), but `simreference.h`
+  does not model this yet, so `runReplay` sets `SimWorld.hearSounds = false`. The shipped
+  replay scenario does not otherwise trigger hearing; M9 should add oracle support and a
+  scenario that exercises it.
 - **`std::sort` not stable.** Enemies/body parts are sorted by X each tick; ties can
   reorder. The oracle uses `std::stable_sort` and the port uses `Array.prototype.sort`
   (stable per spec), so the two agree with each other regardless of ties; this may still

@@ -77,6 +77,16 @@ export const enum SoundEffect {
   Amount,
 }
 
+/** A sample the simulation emitted this tick (`CSoundPlayer`). */
+export interface SoundEvent {
+  effect: SoundEffect;
+  volume: number;
+  x: number;
+  y: number;
+  /** `PlayPosSample` (panned around the observer) vs `PlaySample` (centred). */
+  positional: boolean;
+}
+
 /** Effect ids (`TEffect`). -1 = no effect. */
 export const enum EffectId {
   None = -1,

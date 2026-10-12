@@ -48,6 +48,8 @@ import {
   EnemyState,
   EnemyTypes,
   EEnemyAmount,
+  SoundEffect,
+  type SoundEvent,
   WeaponId,
   WeaponTypes,
 } from "./types";
@@ -185,6 +187,14 @@ export class SimWorld {
   textLength: (text: string) => number = (text) => text.length;
   /** `CGameStatisticsData` sink, if any (see `src/sim/statistics.ts`). */
   stats: GameStatistics | null = null;
+  /** Samples emitted this tick (`CSoundPlayer`); the app drains them. */
+  readonly sounds: SoundEvent[] = [];
+  /**
+   * `CEnemy::SoundHeard` on positional samples. The parity oracle
+   * (`tools/reference/simreference.h`) does not model it yet, so the replay
+   * harness turns it off to stay byte-comparable (docs/13).
+   */
+  hearSounds = true;
   /** Monotonic id for enemy bullet-owner identity. */
   private enemyUidCounter = 0;
 
@@ -280,6 +290,48 @@ export class SimWorld {
     this.bullets.push(b);
   }
 
+  // ---------------------------------------------------------------------
+  // M7: sound emission (CSoundPlayer)
+  // ---------------------------------------------------------------------
+
+  /** `CSoundPlayer::PlayPosSample` — queues a panned sample and lets enemies hear it. */
+  private playPosSound(effect: SoundEffect, x: number, y: number): void {
+    if (effect === SoundEffect.NoSound) return;
+    if (this.hearSounds) this.soundHeard(effect, Math.trunc(x), Math.trunc(y));
+    this.sounds.push({ effect, volume: 1, x, y, positional: true });
+  }
+
+  /** `CSoundPlayer::PlaySample` — a centred sample with no hearing. */
+  private playFlatSound(effect: SoundEffect): void {
+    if (effect === SoundEffect.NoSound) return;
+    this.sounds.push({ effect, volume: 1, x: 0, y: 0, positional: false });
+  }
+
+  /** `CGameSubStateOngoing::SoundHeard` — forwards to every enemy. */
+  private soundHeard(effect: SoundEffect, posX: number, posY: number): void {
+    for (const e of this.enemies) this.enemySoundHeard(e, effect, posX, posY);
+  }
+
+  /** `CEnemy::SoundHeard`. */
+  private enemySoundHeard(e: SimEnemy, effect: SoundEffect, posX: number, posY: number): void {
+    const t = EnemyTypes[e.typeId];
+    if (!t.hostile) return;
+    if (e.state === EnemyState.Assault) return;
+    if (effect === SoundEffect.Click) return;
+    if (
+      getDist(posX, posY, e.x, e.y) < t.sightDistance &&
+      simVisibilityCheck(this.level, Math.trunc(e.x) + 14, Math.trunc(e.y) + 14, posX, posY).visible
+    ) {
+      e.state = EnemyState.Assault;
+      e.targetAngle = Math.trunc(getAngle(e.x, e.y, posX, posY));
+      e.walkCounter = Math.trunc(
+        (getDist(posX, posY, e.x, e.y) -
+          approxDistance(BulletTypes[WeaponTypes[t.currentWeapon].bulletType]) * 0.75) /
+          t.speed,
+      );
+    }
+  }
+
   /** `CLevelRuntimeData::Explo`. */
   explo(posX: number, posY: number, size: number, share: number, owner: number): void {
     const ray = size * 5;
@@ -325,6 +377,15 @@ export class SimWorld {
         }
       }
     }
+
+    // CDynGameData::Explo — sound after the runtime explosion.
+    const fx =
+      size <= 1
+        ? SoundEffect.SmallExplosion
+        : size <= 3
+          ? SoundEffect.Explosion
+          : SoundEffect.BigExplosion;
+    this.playPosSound(fx, posX, posY);
   }
 
   /** `CPlayer::GetDamage`. */
@@ -336,6 +397,7 @@ export class SimWorld {
     if (p.energy <= 0) {
       p.energy = 0;
       if (p.burning) {
+        this.playFlatSound(SoundEffect.Woosh);
         this.newEffect(EffectId.Explo, p.x + 12, p.y + 12, 0, 0);
         this.newEffect(EffectId.Explo, p.x + 18, p.y + 12, 0, 0);
         this.newEffect(EffectId.Explo, p.x + 15, p.y + 18, 0, 0);
@@ -343,6 +405,7 @@ export class SimWorld {
         for (let a = 0; a < 16; a++)
           if (this.rng.rand() % 2)
             this.newEffect(EffectId.Blood, p.x + 15, p.y + 15, Math.trunc(a * 22.5), 2);
+        this.playFlatSound(SoundEffect.Death);
       }
       p.dead = 1;
     }
@@ -432,6 +495,7 @@ export class SimWorld {
             hitwall = true;
           } else {
             this.bounce(b, t.bounceType, npx, npy);
+            this.playPosSound(t.bounceSound, b.x, b.y);
             const np = addMovement({ x: b.x, y: b.y }, b.angle, f32(b.speed / loopTimes));
             npx = np.x;
             npy = np.y;
@@ -528,6 +592,7 @@ export class SimWorld {
         this.stats?.addHit(b.ownerId, b.share);
         b.hitReported = true;
       }
+      if (t.type === BulletKind.Fist) this.playPosSound(WeaponTypes[0].sound, rposX, rposY);
     }
 
     if (
@@ -832,6 +897,7 @@ export class SimWorld {
     if (w.consumesBullets) p.bullets[w.bulletType]--;
 
     if (p.shootCount % BulletTypes[w.bulletType].multiplier === 0) {
+      this.playPosSound(w.sound, rx, ry);
       if (w.smoke) {
         // ofs is a CCoord<int>: each Set/AddMovement truncates separately.
         const ra = Math.trunc(p.angle);
@@ -1066,6 +1132,7 @@ export class SimWorld {
     e.energy = f32(e.energy - damage);
     if (e.energy <= 0) {
       if (e.burning && !t.explosionDeath) {
+        this.playPosSound(SoundEffect.Woosh, e.x, e.y);
         this.newEffect(EffectId.Explo, e.x + 12, e.y + 12, 0, 0);
         this.newEffect(EffectId.Explo, e.x + 18, e.y + 12, 0, 0);
         this.newEffect(EffectId.Explo, e.x + 15, e.y + 18, 0, 0);
@@ -1090,6 +1157,7 @@ export class SimWorld {
             f32(spd + f32((this.rng.rand() % 2) * 0.3)),
             (a + alku) % 7,
           );
+        this.playPosSound(SoundEffect.Death, e.x, e.y);
       }
       if (t.explosionDeath) {
         this.explo(Math.trunc(e.x + 4), Math.trunc(e.y + 4), 2, 1, observer);
@@ -1217,6 +1285,7 @@ export class SimWorld {
       );
     }
     if (e.shootCount % BulletTypes[w.bulletType].multiplier === 0) {
+      this.playPosSound(w.sound, Math.trunc(e.x), Math.trunc(e.y));
       if (w.smoke) {
         let p = addMovement({ x: f32(e.x + 14), y: f32(e.y + 14) }, ia, 8);
         p = addMovement(p, ia + 90, 5);
@@ -1400,6 +1469,7 @@ export class SimWorld {
     if (side === Direction.Down || side === Direction.Up) part.angle = 360 - part.angle;
     else if (side === Direction.Right || side === Direction.Left)
       part.angle = 270 + (270 - part.angle);
+    this.playPosSound(BodyPartTypes[part.typeId].sound, part.x, part.y);
   }
 
   private bodyPartKick(part: SimBodyPart, angle: number): void {
@@ -1470,6 +1540,7 @@ export class SimWorld {
         p.kick = 1;
         const ang = angleFix(Math.trunc(p.angle) - 5 + (this.rng.rand() % 10));
         this.bodyPartKick(part, ang);
+        this.playFlatSound(BodyPartTypes[part.typeId].sound);
       }
     }
   }
@@ -1722,6 +1793,7 @@ export class SimWorld {
 
   /** `CCrate::Taken` — the floating text counter depends on the font width. */
   private crateTaken(c: SimCrate, p: SimPlayer, drawRect: Rect): void {
+    this.playFlatSound(SoundEffect.Click);
     const len = this.textLength(crateText(c));
     const tx = c.x + 7 - len - p.screenX;
     const ty = c.y + 7 - p.screenY;

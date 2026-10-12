@@ -183,6 +183,8 @@ function worldFromScript(level: Level, s: ReplayScript, fontBytes?: Uint8Array):
   }
   w.mouseSensitivity = s.sensitivity;
   w.mouseOwner = s.mouseOwner;
+  // The oracle does not model `CEnemy::SoundHeard` yet (docs/13).
+  w.hearSounds = false;
   w.players = s.players.map((rp) => {
     const p = new SimPlayer();
     p.x = rp.x;

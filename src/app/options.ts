@@ -23,7 +23,7 @@ export const KMouseSensitivityMin = 0.0;
 export const KMouseSensitivityMax = 10.0;
 export const KMouseSensitivityStep = 0.05;
 export const KPlayerNameMaxLength = 15;
-export const DEFAULT_MUSICTHEME = "Default";
+export const DEFAULT_MUSICTHEME = "default";
 
 /** `TPlayerKeys`. */
 export const enum TPlayerKeys {

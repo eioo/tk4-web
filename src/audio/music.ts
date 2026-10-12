@@ -119,7 +119,6 @@ export class MusicPlayer {
 
   /** `CSoundPlayer::MenuMusic`. */
   menuMusic(load: MusicLoader): Promise<void> {
-    this.songCounter = 0;
     return this.loadFirst([MENU_MUSIC], load);
   }
 

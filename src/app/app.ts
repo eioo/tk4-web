@@ -8,6 +8,8 @@
  * frame until the effect completes and installs the next state.
  */
 
+import { MusicPlayer } from "../audio/music";
+import { SoundPlayer } from "../audio/sound";
 import { createLoop, type Loop } from "../core/loop";
 import { GlibcRandom } from "../core/rng";
 import { decodePaletteTab } from "../data/color-tables";
@@ -24,7 +26,7 @@ import { Framebuffer } from "../render/fb";
 import { MessageBoard } from "../render/message-board";
 import { Canvas2DPresenter } from "../render/presenters/canvas2d";
 import { GameStatistics } from "../sim/statistics";
-import { EnemyTypes, WeaponId, WeaponTypes } from "../sim/types";
+import { EnemyTypes, SoundEffect, type SoundEvent, WeaponId, WeaponTypes } from "../sim/types";
 import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
 import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
 import { GameSession, makeStartPlayer } from "./game-session";
@@ -133,6 +135,8 @@ export class App implements MenuHost {
   private readonly post = new Framebuffer(WIDTH, HEIGHT);
   private readonly dark = new Uint8Array(WIDTH * HEIGHT);
   private readonly fader = new GraphicsFader();
+  private readonly sound = new SoundPlayer();
+  private readonly music = new MusicPlayer();
 
   private opts!: Options;
   private menuData!: MenuData;
@@ -156,6 +160,7 @@ export class App implements MenuHost {
   private levelsInEpisode = 0;
   private rootCfgText = "";
   private levelConfigs = new Map<string, Promise<ConfigFile>>();
+  private currentConfig: ConfigFile | null = null;
   private ingameSignature = "";
   private nextLevelPending = false;
   private levelBytes = new Map<number, Uint8Array>();
@@ -218,6 +223,10 @@ export class App implements MenuHost {
     this.ingamePalette = this.ingame.palette;
     this.drawer = new GameDrawer(paletteTab);
 
+    const audioCtx = this.sound.initialize();
+    this.music.attach(audioCtx);
+    void this.sound.load(rootCfg, this.loadBytes);
+
     const fontBytes = await Promise.all(FONT_FILES.map((spec) => this.loadBytes(spec.file)));
     this.fontSet = new SystemFonts(fontBytes.map(decodeFnt));
 
@@ -234,6 +243,7 @@ export class App implements MenuHost {
       })),
       manifest.musicThemes,
     );
+    this.applyAudioOptions();
 
     this.menuContainer = new MenuContainer(this);
     this.installInput();
@@ -421,6 +431,7 @@ export class App implements MenuHost {
       case MainState.Logo1:
       case MainState.Logo2:
         this.logoStart = this.clock;
+        if (main === MainState.Logo1) this.startMenuMusic();
         break;
       case MainState.Menu:
         this.menuContainer.enterState();
@@ -536,7 +547,7 @@ export class App implements MenuHost {
 
   private runMenu(): void {
     if (this.first()) this.startFadeIn(this.menuData.palettes[PaletteNo.Menu]);
-    this.menuContainer.runFrame(this.nextKey());
+    if (this.menuContainer.runFrame(this.nextKey())) this.sound.playSample(SoundEffect.Click, 1);
   }
 
   private runQuitMenu(): void {
@@ -651,6 +662,7 @@ export class App implements MenuHost {
   private async ensureLevelIngame(episode: number, levelIndex: number): Promise<void> {
     try {
       const cfg = await this.levelConfig(episode, levelIndex);
+      this.currentConfig = cfg;
       const signature = ingameSignature(cfg);
       if (signature === this.ingameSignature) return;
       this.ingame = await loadIngameData(cfg, this.loadBytes);
@@ -778,6 +790,7 @@ export class App implements MenuHost {
     );
     this.messageBoard.setDrawOffset(this.gameMode.frags() ? 16 : 0);
     this.resetKeyQueue();
+    this.startGameMusic();
     this.startFadeIn(this.ingamePalette);
   }
 
@@ -793,6 +806,8 @@ export class App implements MenuHost {
     if (!session) return;
     session.currentFps = Math.trunc(this.fps);
     session.step(this.gameInput());
+    this.playSounds(session.world.sounds);
+    session.world.sounds.length = 0;
     if (session.allPlayersDead()) {
       session.completeTime = session.timeLimit;
       this.gameOver = true;
@@ -817,44 +832,68 @@ export class App implements MenuHost {
       this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
     }
     const keys = this.opts.data.keys[0];
-    let key = this.nextKey();
-    while (key) {
-      const sym = key.sym;
-      if (sym === SDLK.ESCAPE) this.shop.playerDone = true;
-      else if (sym === SDLK.DOWN || sym === keys[TPlayerKeys.DOWN]) this.shop.bigIncItem();
-      else if (sym === SDLK.UP || sym === keys[TPlayerKeys.UP]) this.shop.bigDecItem();
-      else if (
-        sym === SDLK.LEFT ||
-        sym === keys[TPlayerKeys.LEFT] ||
-        sym === keys[TPlayerKeys.LSTRAFE]
-      )
-        this.shop.decItem();
-      else if (
-        sym === SDLK.RIGHT ||
-        sym === keys[TPlayerKeys.RIGHT] ||
-        sym === keys[TPlayerKeys.RSTRAFE]
-      )
-        this.shop.incItem();
-      else if (
-        sym === SDLK.RETURN ||
-        (sym === keys[TPlayerKeys.SHOOT] && keys[TPlayerKeys.SHIFT] !== SDLK.BACKSPACE)
-      )
-        shopBuy(player, this.shop, 1);
-      else if (
-        sym === SDLK.BACKSPACE ||
-        (sym === keys[TPlayerKeys.SHIFT] && keys[TPlayerKeys.SHIFT] !== SDLK.RETURN)
-      )
-        shopSell(player, this.shop, 1);
-      else if (sym === SDLK.PAGEDOWN) shopSell(player, this.shop, 25);
-      else if (sym === SDLK.PAGEUP) shopBuy(player, this.shop, 25);
-      key = this.nextKey();
+    let handled = false;
+    for (let key = this.nextKey(); key; key = this.nextKey()) {
+      if (this.shopKey(player, key.sym, keys)) handled = true;
     }
+    if (handled) this.sound.playSample(SoundEffect.Click, 1);
 
     if (this.shop.playerDone) {
       this.shop.playerDone = false;
       this.shop.setSkipOnce();
       this.startFadeOut(MainState.Game, GameState.OnGoing);
     }
+  }
+
+  /** `CGameSubStateShop` key handling; true when a key was consumed (click). */
+  private shopKey(player: SimPlayer, sym: number, keys: number[]): boolean {
+    if (sym === SDLK.ESCAPE) {
+      this.shop.playerDone = true;
+      return true;
+    }
+    if (sym === SDLK.DOWN || sym === keys[TPlayerKeys.DOWN]) {
+      this.shop.bigIncItem();
+      return true;
+    }
+    if (sym === SDLK.UP || sym === keys[TPlayerKeys.UP]) {
+      this.shop.bigDecItem();
+      return true;
+    }
+    if (sym === SDLK.LEFT || sym === keys[TPlayerKeys.LEFT] || sym === keys[TPlayerKeys.LSTRAFE]) {
+      this.shop.decItem();
+      return true;
+    }
+    if (
+      sym === SDLK.RIGHT ||
+      sym === keys[TPlayerKeys.RIGHT] ||
+      sym === keys[TPlayerKeys.RSTRAFE]
+    ) {
+      this.shop.incItem();
+      return true;
+    }
+    if (
+      sym === SDLK.RETURN ||
+      (sym === keys[TPlayerKeys.SHOOT] && keys[TPlayerKeys.SHIFT] !== SDLK.BACKSPACE)
+    ) {
+      shopBuy(player, this.shop, 1);
+      return true;
+    }
+    if (
+      sym === SDLK.BACKSPACE ||
+      (sym === keys[TPlayerKeys.SHIFT] && keys[TPlayerKeys.SHIFT] !== SDLK.RETURN)
+    ) {
+      shopSell(player, this.shop, 1);
+      return true;
+    }
+    if (sym === SDLK.PAGEDOWN) {
+      shopSell(player, this.shop, 25);
+      return true;
+    }
+    if (sym === SDLK.PAGEUP) {
+      shopBuy(player, this.shop, 25);
+      return true;
+    }
+    return false;
   }
 
   private runStatistics(): void {
@@ -872,6 +911,7 @@ export class App implements MenuHost {
         );
       }
       this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
+      this.startMenuMusic();
     }
     if (!this.nextKey()) return;
     if (this.gameOver || this.userQuit) {
@@ -1011,6 +1051,56 @@ export class App implements MenuHost {
   }
 
   // ------------------------------------------------------------------
+  // audio (`CSoundPlayer`)
+  // ------------------------------------------------------------------
+
+  /** `COptions::UpdateAudioChanges`. */
+  private applyAudioOptions(): void {
+    const d = this.opts.data;
+    this.sound.setFxVolume(d.effectsVolume);
+    this.sound.setReverseStereo(d.stereo ? 1 : 0);
+    this.music.setMusicVolume(d.musicVolume);
+    this.music.setTheme(d.musicTheme);
+  }
+
+  private decodeMusic(path: string): Promise<AudioBuffer | null> {
+    const ctx = this.sound.initialize();
+    if (!ctx) return Promise.resolve(null);
+    return this.loadBytes(path).then(
+      (bytes) => ctx.decodeAudioData(bytes.slice().buffer as ArrayBuffer),
+      () => null,
+    );
+  }
+
+  private startMenuMusic(): void {
+    void this.music.menuMusic((path) => this.decodeMusic(path));
+  }
+
+  /** `CGameSubStateOngoing::EnterState` — the level's `ForceSoundTrack`/number. */
+  private startGameMusic(): void {
+    const cfg = this.currentConfig;
+    const soundtrack = cfg?.get("ForceSoundTrack") ?? "";
+    const forced = cfg?.get("ForceSongNumber");
+    const songNumber = forced ? Number.parseInt(forced, 10) : -1;
+    void this.music.gameMusic(soundtrack, Number.isNaN(songNumber) ? -1 : songNumber, (path) =>
+      this.decodeMusic(path),
+    );
+  }
+
+  /** Plays the samples the simulation queued this tick. */
+  private playSounds(events: SoundEvent[]): void {
+    if (events.length === 0) return;
+    const observer = this.player;
+    for (const ev of events) {
+      if (ev.positional && observer) {
+        this.sound.playPosSample(ev.effect, ev.volume, ev.x, ev.y, observer.x, observer.y);
+      } else {
+        this.sound.playSample(ev.effect, ev.volume);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
   // helpers
   // ------------------------------------------------------------------
 
@@ -1122,7 +1212,9 @@ export class App implements MenuHost {
   updateLargeTextMode(large: boolean): void {
     this.fontSet.updateLargeTextMode(large);
   }
-  updateAudioChanges(): void {}
+  updateAudioChanges(): void {
+    this.applyAudioOptions();
+  }
   cycleResolution(_forward: boolean): void {}
   requestQuit(): void {
     this.setState(MainState.Quit, 0);
@@ -1134,6 +1226,7 @@ export class App implements MenuHost {
 
   private installInput(): void {
     window.addEventListener("keydown", (e) => {
+      this.sound.resume();
       if (e.repeat) return;
       const sym = codeToSdlKey(e.code);
       this.heldCodes.add(e.code);
@@ -1146,6 +1239,7 @@ export class App implements MenuHost {
       this.rawButtons = 0;
     });
     this.canvas.addEventListener("mousedown", (e) => {
+      this.sound.resume();
       if (this.inOngoing()) {
         if (document.pointerLockElement !== this.canvas) {
           void this.canvas.requestPointerLock();
