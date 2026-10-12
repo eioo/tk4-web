@@ -23,13 +23,16 @@ import { GraphicsFader, scalePalette } from "../render/fader";
 import { Framebuffer } from "../render/fb";
 import { MessageBoard } from "../render/message-board";
 import { Canvas2DPresenter } from "../render/presenters/canvas2d";
+import { GameStatistics } from "../sim/statistics";
 import { EnemyTypes, WeaponId, WeaponTypes } from "../sim/types";
-import { Key, MouseButton, type SimInput } from "../sim/world";
+import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
 import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
-import { GameSession } from "./game-session";
+import { GameSession, makeStartPlayer } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
-import { Options } from "./options";
+import { Options, TPlayerKeys } from "./options";
+import { drawShop, DynShopData, shopBuy, shopSell, type ShopContext } from "./shop";
+import { drawStatistics, givePlayerPrize, type StatisticsContext } from "./statistics";
 
 const WIDTH = 640;
 const HEIGHT = 480;
@@ -154,6 +157,15 @@ export class App implements MenuHost {
   private levelData = new Map<number, Level>();
   private session: GameSession | null = null;
   private userQuit = false;
+  private gameOver = false;
+
+  /** `CDynGameData::iLocalPlayer[0]` + `Statistics()` — persist across levels. */
+  private player: SimPlayer | null = null;
+  private stats = new GameStatistics();
+  private completeTime = 0;
+  private timeBonus = 0;
+  private shop = new DynShopData();
+  private shopRng = new GlibcRandom((Date.now() / 1000) >>> 0);
 
   private logoStart = 0;
   private ongoingShowMap = false;
@@ -561,6 +573,13 @@ export class App implements MenuHost {
     }
     this.currentLevel = startLevel;
     this.userQuit = false;
+    this.gameOver = false;
+    this.player = makeStartPlayer();
+    this.stats = new GameStatistics();
+    this.stats.addPlayer(this.opts.data.name[0] || "Unknown soldier");
+    this.stats.recording = startLevel;
+    this.shop = new DynShopData();
+    this.shopRng = new GlibcRandom((Date.now() / 1000) >>> 0);
     this.levelBytes.clear();
     this.levelData.clear();
     const files = epi.levels.map((l) => l.file);
@@ -652,8 +671,10 @@ export class App implements MenuHost {
 
   private enterOngoing(): void {
     const level = this.levelFor(this.currentLevel);
-    if (!level) return;
+    const player = this.player;
+    if (!level || !player) return;
     const f = this.fontSet.get(GameFont.SmallFont);
+    this.stats.recording = this.currentLevel;
     this.session = new GameSession(
       level,
       toDrawSprites(this.ingame),
@@ -682,10 +703,19 @@ export class App implements MenuHost {
         kills: [0],
       },
       (Date.now() / 1000) >>> 0,
+      player,
+      this.stats,
     );
     this.messageBoard.setDrawOffset(this.gameMode.frags() ? 16 : 0);
     this.resetKeyQueue();
     this.startFadeIn(this.ingamePalette);
+  }
+
+  /** `CDynGameData::NextLevel` + `SetLatestLevel` at the level transition. */
+  private finishLevel(): void {
+    this.completeTime = this.session?.completeTime ?? 0;
+    this.stats.latest = this.currentLevel;
+    this.currentLevel++;
   }
 
   private runOngoing(): void {
@@ -695,26 +725,87 @@ export class App implements MenuHost {
     session.step(this.gameInput());
     if (session.allPlayersDead()) {
       session.completeTime = session.timeLimit;
+      this.gameOver = true;
+      this.finishLevel();
       this.startZoomOut(MainState.Game, GameState.Statistics);
       return;
     }
     if (session.nextLevel >= KLevelCompleteDelay || this.userQuit) {
+      this.finishLevel();
       this.startFadeOut(MainState.Game, GameState.Statistics);
     }
   }
 
   private runShop(): void {
-    // Shopping is M6c; skip straight into the level for now.
-    this.setState(MainState.Game, GameState.OnGoing);
+    const player = this.player;
+    if (!player) return;
+    if (this.first()) {
+      this.shop.playerDone = false;
+      this.shop.resetSelection();
+      this.shop.updatePrices(this.shopRng);
+      this.resetKeyQueue();
+      this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
+    }
+    const keys = this.opts.data.keys[0];
+    let key = this.nextKey();
+    while (key) {
+      const sym = key.sym;
+      if (sym === SDLK.ESCAPE) this.shop.playerDone = true;
+      else if (sym === SDLK.DOWN || sym === keys[TPlayerKeys.DOWN]) this.shop.bigIncItem();
+      else if (sym === SDLK.UP || sym === keys[TPlayerKeys.UP]) this.shop.bigDecItem();
+      else if (
+        sym === SDLK.LEFT ||
+        sym === keys[TPlayerKeys.LEFT] ||
+        sym === keys[TPlayerKeys.LSTRAFE]
+      )
+        this.shop.decItem();
+      else if (
+        sym === SDLK.RIGHT ||
+        sym === keys[TPlayerKeys.RIGHT] ||
+        sym === keys[TPlayerKeys.RSTRAFE]
+      )
+        this.shop.incItem();
+      else if (
+        sym === SDLK.RETURN ||
+        (sym === keys[TPlayerKeys.SHOOT] && keys[TPlayerKeys.SHIFT] !== SDLK.BACKSPACE)
+      )
+        shopBuy(player, this.shop, 1);
+      else if (
+        sym === SDLK.BACKSPACE ||
+        (sym === keys[TPlayerKeys.SHIFT] && keys[TPlayerKeys.SHIFT] !== SDLK.RETURN)
+      )
+        shopSell(player, this.shop, 1);
+      else if (sym === SDLK.PAGEDOWN) shopSell(player, this.shop, 25);
+      else if (sym === SDLK.PAGEUP) shopBuy(player, this.shop, 25);
+      key = this.nextKey();
+    }
+
+    if (this.shop.playerDone) {
+      this.shop.playerDone = false;
+      this.shop.setSkipOnce();
+      this.startFadeOut(MainState.Game, GameState.OnGoing);
+    }
   }
 
   private runStatistics(): void {
     if (this.first()) {
       this.resetKeyQueue();
+      if (this.player) {
+        const level = this.levelFor(this.stats.latest);
+        this.timeBonus = givePlayerPrize(
+          this.player,
+          this.stats,
+          level?.general.timeLimit ?? 0,
+          this.completeTime,
+          this.gameOver,
+          this.userQuit,
+        );
+      }
       this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
     }
     if (!this.nextKey()) return;
-    if (this.userQuit) {
+    if (this.gameOver || this.userQuit) {
+      this.gameOver = false;
       this.userQuit = false;
       this.startFadeOut(MainState.Menu, 0);
       return;
@@ -722,7 +813,6 @@ export class App implements MenuHost {
     if (this.currentLevel >= this.levelsInEpisode) {
       this.startFadeOut(MainState.Game, GameState.Victory);
     } else {
-      this.currentLevel++;
       this.startFadeOut(MainState.Game, GameState.NextLevel);
     }
   }
@@ -809,12 +899,45 @@ export class App implements MenuHost {
         this.drawGameQuit();
         break;
       case GameState.Statistics:
+        this.drawStatisticsScreen();
+        break;
       case GameState.Shop:
-        this.session?.draw();
+        this.drawShopScreen();
         break;
       default:
         break;
     }
+  }
+
+  private drawStatisticsScreen(): void {
+    const ctx: StatisticsContext = {
+      fb: this.fb,
+      menuData: this.menuData,
+      fonts: this.fontSet,
+      stats: this.stats,
+      playerName: this.stats.player(0)?.name ?? "",
+      actionTimeMatters: this.gameMode.actionTimeMatters(),
+      frags: this.gameMode.frags(),
+      gameOver: this.gameOver,
+      userQuit: this.userQuit,
+      timeBonus: this.timeBonus,
+      timeLimit: this.levelFor(this.stats.latest)?.general.timeLimit ?? 0,
+      completeTime: this.completeTime,
+      playerCash: this.player?.cash ?? 0,
+    };
+    drawStatistics(ctx);
+  }
+
+  private drawShopScreen(): void {
+    if (!this.player) return;
+    const ctx: ShopContext = {
+      fb: this.fb,
+      menuData: this.menuData,
+      fonts: this.fontSet,
+      player: this.player,
+      playerName: this.stats.player(this.shop.player)?.name ?? "",
+    };
+    drawShop(ctx, this.shop);
   }
 
   // ------------------------------------------------------------------
@@ -1058,7 +1181,7 @@ export class App implements MenuHost {
           crates: 0,
           bodyparts: 0,
           effects: 0,
-          cash: 0,
+          cash: this.player?.cash ?? 0,
           state: this.mainState,
           sub: this.gameState,
         };

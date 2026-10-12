@@ -32,6 +32,7 @@ import type { Rect } from "../render/rect";
 import { idiv, rectHeight, rectWidth } from "../render/rect";
 import { SimBodyPart, SimCrate, SimEffect, SimEnemy, crateText } from "./entities";
 import { simCollision, simDustBlock, simVisibilityCheck } from "./level-physics";
+import type { GameStatistics } from "./statistics";
 import {
   approxDistance,
   BodyPartId,
@@ -64,8 +65,8 @@ const KHeavyOverloadLimit = 3000;
 const KTooManyTries = 100000;
 const KCrateWakeupDelay = 1250;
 /** `KPlayerMaxEnergy` / `KShieldEnergyAmount` (CPlayer.h). */
-const KPlayerMaxEnergy = 100;
-const KShieldEnergyAmount = 10;
+export const KPlayerMaxEnergy = 100;
+export const KShieldEnergyAmount = 10;
 /** `KSteamRates[8]` (CDynGameData.cpp). */
 const KSteamRates = [30, 20, 10, 10, 8, 8, 6, 6];
 
@@ -182,6 +183,8 @@ export class SimWorld {
   crateRespawn = false;
   /** `CFonts::Length` for the small in-game font (crate pickup text). */
   textLength: (text: string) => number = (text) => text.length;
+  /** `CGameStatisticsData` sink, if any (see `src/sim/statistics.ts`). */
+  stats: GameStatistics | null = null;
   /** Monotonic id for enemy bullet-owner identity. */
   private enemyUidCounter = 0;
 
@@ -521,7 +524,10 @@ export class SimWorld {
           this.newEffect(EffectId.Blood, xx, yy, ang, bp);
         }
       }
-      if (b.ownerId >= 0 && t.power > 0 && !b.hitReported) b.hitReported = true;
+      if (b.ownerId >= 0 && t.power > 0 && !b.hitReported) {
+        this.stats?.addHit(b.ownerId, b.share);
+        b.hitReported = true;
+      }
     }
 
     if (
@@ -804,6 +810,8 @@ export class SimWorld {
       p.fire2 = 1;
       p.loadCounter2 = 0;
     }
+
+    this.stats?.addShot(owner);
 
     for (let a = 0; a < w.bulletAmount; a++) {
       let r: number;
@@ -1088,6 +1096,7 @@ export class SimWorld {
         for (let a = 0; a < 3; a++)
           this.newBodyPart(e.x + 4, e.y + 4, this.rng.rand() % 360, 3, a + BodyPartId.BurnedChest);
       }
+      if (observer >= 0) this.stats?.addEnemyKill(observer, e.typeId);
       return true;
     }
     return false;

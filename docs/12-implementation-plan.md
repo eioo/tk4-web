@@ -170,26 +170,39 @@ select; level info; shop; statistics; victory; in-game quit.
 - **M6c — economy/progress.** `CGameSubStateShop`/`Statistics`/`Victory`, the
   statistics view, shopping, and episode → episode progression to victory.
 
-**Status:** M6a and most of M6b are in. The app shell (`src/app/app.ts`)
+**Status:** M6a, M6b and M6c are in. The app shell (`src/app/app.ts`)
 ports `CGameState` plus `CGameApp::Loop`'s effect handling, the two logo
-screens, `CGUIStateQuit`, and the in-game sub-state flow (`NextLevel`,
-`LevelInfo`, `OnGoing`, `Quit`, and simplified `Shop`/`Statistics`/`Victory`).
+screens, `CGUIStateQuit`, and the full in-game sub-state flow (`NextLevel`,
+`LevelInfo`, `OnGoing`, `Shop`, `Statistics`, `Victory`, `Quit`).
 `src/app/menu.ts` ports the menu framework and every menu tree
 (`CGameMenuBase`/`Container`/`MenuItem`, `Menu.cpp`, `MenuItems.cpp`),
-`src/app/options.ts` the `COptionsData` defaults and episode/music lists, and
-`src/app/game-session.ts` the per-level `SimWorld` + HUD that used to live in
-`main.ts`. Fonts/menu sprites load via `src/app/fonts.ts` and
-`src/data/menu-data.ts` (new PCX path); `tools/build-assets.ts` emits the
-episode/manifest listing the browser cannot `scandir`.
+`src/app/options.ts` the `COptionsData` defaults and episode/music lists,
+`src/app/game-session.ts` the per-level `SimWorld` + HUD, `src/app/shop.ts`
+`CGameSubStateShop` + `CDynShopData` and `src/app/statistics.ts`
+`CGameSubStateStatistics` + `GivePlayerPrize`; `src/sim/statistics.ts` is
+`CGameStatisticsData` and `src/sim/world.ts` records shots/hits/kills into it.
+Fonts/menu sprites load via `src/app/fonts.ts` and `src/data/menu-data.ts`
+(new PCX path); `tools/build-assets.ts` emits the episode/manifest listing the
+browser cannot `scandir`.
 
-Verified by scripted browser runs (`tools.browser.*`): EF logo → TK logo → main
-menu → single game → episode select → level info → ongoing, with the level
-info "killing list" and the running level/HUD drawn correctly. Menu navigation
-is covered by `src/app/__test__/menu.test.ts`.
+Players are created once per game (`makeStartPlayer`, matching
+`TotalReset` + `SetupPlayers`: 500 cash, fists only) and each level resets them
+in place (`resetPlayerForLevel`), so cash, weapons, ammo and statistics persist
+across levels. Cooperative play shops from level 2 onward
+(`GameModeCooperative::ShopEnabled`); the shop grid, pricing, buy/sell rules
+and the statistics table follow the reference.
+
+Verified by scripted browser runs (`tools.browser.*` / chrome-devtools):
+EF logo → TK logo → main menu → single game → episode select → level info →
+ongoing, with the level info "killing list" and the running level/HUD drawn
+correctly; and (via direct state injection) the shop and statistics screens
+render with their own palettes (no more level-under-shop-palette corruption).
+Menu navigation is covered by `src/app/__test__/menu.test.ts`, the shop by
+`src/app/__test__/shop.test.ts` and the statistics/prize maths by
+`src/sim/__test__/statistics.test.ts`.
 
 Still pending: the level-select/game-mode multiplay wiring beyond the menu
-skeleton, the shop, the real statistics table, and episode progression to
-victory with money/weapons persistence (M6c); the version string and per-level
+skeleton, deathmatch frags/scoring, and the version string and per-level
 `<level>.ini` overrides.
 
 ---
