@@ -32,10 +32,11 @@ function makePlayer(): SimPlayer {
   return p;
 }
 
-function makeWorld(level: Level, seed: number, perSeatMouse: boolean): SimWorld {
+function makeWorld(level: Level, seed: number, perSeatMouse: boolean, mouseOwner = -1): SimWorld {
   const world = new SimWorld(level, seed);
   world.perSeatMouse = perSeatMouse;
   world.mouseSensitivity = 0.5;
+  world.mouseOwner = mouseOwner;
   world.players = [makePlayer(), makePlayer()];
   world.spawnEntities();
   for (const p of world.players) world.initScr(p);
@@ -53,9 +54,33 @@ function frames(ticks: number): SimInput[][] {
   return out;
 }
 
+/** Both seats walk, turn and fire; exactly what a real online match does. */
+function combatFrames(ticks: number): SimInput[][] {
+  const out: SimInput[][] = [];
+  for (let t = 0; t < ticks; t++) {
+    out.push([
+      {
+        keys: t % 8 < 4 ? Key.Up : Key.Down,
+        mouseXRel: Math.sin(t / 7) * 6,
+        mouseButtons: MouseButton.Left,
+      },
+      {
+        keys: t % 12 < 6 ? Key.RightStrafe : Key.LeftStrafe,
+        mouseXRel: Math.cos(t / 5) * 6,
+        mouseButtons: MouseButton.Left | MouseButton.Right,
+      },
+    ]);
+  }
+  return out;
+}
+
 function snapshot(world: SimWorld): number[] {
   const out: number[] = [];
-  for (const p of world.players) out.push(p.x, p.y, p.angle, p.energy);
+  for (const p of world.players) {
+    out.push(p.x, p.y, p.angle, p.energy, p.shootCount, p.curWeapon, p.loadCounter);
+  }
+  out.push(world.bullets.length);
+  for (const b of world.bullets) out.push(b.x, b.y, b.angle);
   return out;
 }
 
@@ -69,6 +94,19 @@ describe("per-seat mouse determinism", () => {
       b.tick(input);
     }
     expect(snapshot(a)).toEqual(snapshot(b));
+  });
+
+  test("two clients with different mouse owners stay identical", async () => {
+    const level = loadLevel(await readRef("levs/small.lev"));
+    // Each client sets `mouseOwner` to its own seat (see GameSession). With
+    // per-seat mouse they must still simulate the exact same world.
+    const clientA = makeWorld(level, 0x5134, true, 0);
+    const clientB = makeWorld(level, 0x5134, true, 1);
+    for (const input of combatFrames(160)) {
+      clientA.tick(input);
+      clientB.tick(input);
+    }
+    expect(snapshot(clientA)).toEqual(snapshot(clientB));
   });
 
   test("each seat rotates from its own mouse", async () => {

@@ -212,7 +212,8 @@ export class SimWorld {
    */
   perSeatMouse = false;
   mouseSensitivity = 0.5;
-  mouseRightPressed = false;
+  /** Per-seat right-button edge state (the original has a single mouse). */
+  mouseRightPressed: boolean[] = [];
   coopFrags = false;
   networkNone = true;
   steamAnimationCount = 0;
@@ -992,7 +993,7 @@ export class SimWorld {
     p.noDamage = false;
 
     if (
-      this.mouseOwner !== index &&
+      !this.mouseControls(index) &&
       !(input.keys & Key.Left) &&
       !(input.keys & Key.Right) &&
       p.targetAngle === Math.trunc(p.angle)
@@ -1023,7 +1024,7 @@ export class SimWorld {
       walkChk = 1;
     }
 
-    if (this.mouseOwner === index) fAngle = Math.trunc(p.angle);
+    if (this.mouseControls(index)) fAngle = Math.trunc(p.angle);
     else fAngle = Math.trunc(f32(p.spriteAngle() * 4.5));
 
     if (forward === Direction.Up) {
@@ -1052,7 +1053,7 @@ export class SimWorld {
 
     if (
       input.keys & Key.Shoot ||
-      (this.mouseOwner === index && input.mouseButtons & MouseButton.Left)
+      (this.mouseControls(index) && input.mouseButtons & MouseButton.Left)
     ) {
       p.shootCount++;
       if (WeaponTypes[p.curWeapon].bulletType !== BulletId.Fist)
@@ -1086,15 +1087,15 @@ export class SimWorld {
       p.weaponInHand = false;
     }
 
-    if (!(input.mouseButtons & MouseButton.Right)) this.mouseRightPressed = false;
+    if (!(input.mouseButtons & MouseButton.Right)) this.mouseRightPressed[index] = false;
     if (
       input.keys & Key.Shift ||
-      (this.mouseOwner === index &&
+      (this.mouseControls(index) &&
         input.mouseButtons & MouseButton.Right &&
-        !this.mouseRightPressed)
+        !this.mouseRightPressed[index])
     ) {
       this.changeWeapon(p, false);
-      if (this.mouseOwner === index) this.mouseRightPressed = true;
+      if (this.mouseControls(index)) this.mouseRightPressed[index] = true;
     }
   }
 
@@ -2002,6 +2003,16 @@ export class SimWorld {
     c.textAngle = Math.trunc(getAngle(tx, ty, bx, by));
   }
 
+  /**
+   * Whether seat `index`'s mouse drives its player's aim/shoot right-click.
+   * Offline that is only the single `mouseOwner`; online (`perSeatMouse`) every
+   * seat owns its own mouse — and crucially the answer must NOT depend on which
+   * client is running, or the worlds diverge.
+   */
+  private mouseControls(index: number): boolean {
+    return this.perSeatMouse || this.mouseOwner === index;
+  }
+
   /** `CPlayer` mouse rotation + wheel weapon switching (both mouse paths). */
   private applyMouse(p: SimPlayer, mouse: SimInput): void {
     let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
@@ -2023,14 +2034,10 @@ export class SimWorld {
       if (p.local && !p.dead) this.playerCheckKeys(i, p, inputs[i] ?? EMPTY_INPUT);
     }
 
-    if (this.perSeatMouse) {
-      for (let i = 0; i < this.players.length; i++) {
-        const p = this.players[i];
-        if (p.dead) continue;
-        this.applyMouse(p, inputs[i] ?? EMPTY_INPUT);
-      }
-    } else if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
-      this.applyMouse(this.players[this.mouseOwner], inputs[this.mouseOwner] ?? EMPTY_INPUT);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      if (p.dead || !this.mouseControls(i)) continue;
+      this.applyMouse(p, inputs[i] ?? EMPTY_INPUT);
     }
 
     // 2. LevelRuntimeData::PerFrameCalc
