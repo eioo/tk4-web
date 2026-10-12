@@ -32,7 +32,14 @@ import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
 import { GameSession, makeStartPlayer } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
-import { Options, TPlayerKeys } from "./options";
+import { Options, stepResolution, TPlayerKeys } from "./options";
+import {
+  applyOptions,
+  browserStorage,
+  OPTIONS_STORAGE_KEY,
+  serializeOptions,
+  type StorageLike,
+} from "./options-storage";
 import { drawShop, DynShopData, shopBuy, shopSell, type ShopContext } from "./shop";
 import { drawStatistics, givePlayerPrize, type StatisticsContext } from "./statistics";
 
@@ -194,7 +201,10 @@ export class App implements MenuHost {
   private rawButtons = 0;
   private wheelTicks = 0;
 
-  constructor(private readonly loadBytes: (path: string) => Promise<Uint8Array>) {}
+  constructor(
+    private readonly loadBytes: (path: string) => Promise<Uint8Array>,
+    private readonly storage: StorageLike | null = browserStorage(),
+  ) {}
 
   private loadText(path: string): Promise<string> {
     return this.loadBytes(path).then((bytes) => new TextDecoder().decode(bytes));
@@ -243,7 +253,10 @@ export class App implements MenuHost {
       })),
       manifest.musicThemes,
     );
+    this.loadOptions();
     this.applyAudioOptions();
+    this.applyGamma();
+    this.fontSet.updateLargeTextMode(this.opts.data.inGameLargeText);
 
     this.menuContainer = new MenuContainer(this);
     this.installInput();
@@ -1063,6 +1076,37 @@ export class App implements MenuHost {
     this.music.setTheme(d.musicTheme);
   }
 
+  // ------------------------------------------------------------------
+  // options persistence (`COptions::Load` / `Save`)
+  // ------------------------------------------------------------------
+
+  /** `COptions::Load` — apply the saved blob, then sanity-check + clamp. */
+  private loadOptions(): void {
+    const raw = this.storage?.getItem(OPTIONS_STORAGE_KEY) ?? null;
+    if (applyOptions(this.opts.data, raw)) this.opts.validate();
+    // A saved theme can name a folder that no longer exists; fall back to the
+    // first available one (the menus do the same when the name is unknown).
+    if (!this.opts.musicThemes.includes(this.opts.data.musicTheme)) {
+      this.opts.data.musicTheme = this.opts.musicThemes[0] ?? this.opts.data.musicTheme;
+    }
+  }
+
+  /** `COptions::Save` (names trimmed by `serializeOptions`). */
+  saveOptions(): void {
+    try {
+      this.storage?.setItem(OPTIONS_STORAGE_KEY, serializeOptions(this.opts.data));
+    } catch {
+      // Quota/private-mode failures are non-fatal.
+    }
+  }
+
+  /** `COptions::UpdateGammaChanges` — approximate `SDL_SetGamma` via CSS. */
+  private applyGamma(): void {
+    const gamma = this.opts.data.gamma;
+    this.presenter.canvas.style.filter =
+      Math.abs(gamma - 1) < 1e-3 ? "" : `brightness(${gamma.toFixed(3)})`;
+  }
+
   private decodeMusic(path: string): Promise<AudioBuffer | null> {
     const ctx = this.sound.initialize();
     if (!ctx) return Promise.resolve(null);
@@ -1174,6 +1218,7 @@ export class App implements MenuHost {
   }
   changeState(state: MenuState): void {
     if (state === MenuState.Quit) {
+      this.saveOptions();
       this.setState(MainState.Quit, 0);
       return;
     }
@@ -1192,10 +1237,12 @@ export class App implements MenuHost {
     this.messageBoard.addMessage(message, this.clock);
   }
   execSingleGame(episode: number): void {
+    this.saveOptions();
     this.startGame(new GameMode(false), episode, 0);
   }
   execMultiplay(): void {
     const opt = this.opts.data;
+    this.saveOptions();
     this.startGame(
       new GameMode(opt.multiPlayGameMode !== 0),
       opt.multiPlayEpisode,
@@ -1208,15 +1255,45 @@ export class App implements MenuHost {
   timerCounter(): number {
     return this.clock;
   }
-  fullScreenChanged(): void {}
+  fullScreenChanged(): void {
+    if (this.opts.data.fullScreen) {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {
+          // Denied (no gesture / unsupported): keep the option in sync.
+          this.opts.data.fullScreen = false;
+        });
+      }
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => {});
+    }
+    this.saveOptions();
+  }
   updateLargeTextMode(large: boolean): void {
     this.fontSet.updateLargeTextMode(large);
+    this.saveOptions();
   }
   updateAudioChanges(): void {
     this.applyAudioOptions();
+    this.saveOptions();
   }
-  cycleResolution(_forward: boolean): void {}
+  updateGammaChanges(): void {
+    this.applyGamma();
+    this.saveOptions();
+  }
+  cycleResolution(forward: boolean): void {
+    this.opts.data.inGameVideoMode = stepResolution(this.opts.data.inGameVideoMode, forward);
+    this.saveOptions();
+  }
+  optionsReset(): void {
+    this.opts.reset();
+    this.opts.validate();
+    this.applyAudioOptions();
+    this.applyGamma();
+    this.updateLargeTextMode(this.opts.data.inGameLargeText);
+    this.saveOptions();
+  }
   requestQuit(): void {
+    this.saveOptions();
     this.setState(MainState.Quit, 0);
   }
 
@@ -1265,6 +1342,14 @@ export class App implements MenuHost {
       },
       { passive: false },
     );
+    // Keep `fullscreen` in sync when the user leaves with Esc / the browser UI.
+    document.addEventListener("fullscreenchange", () => {
+      this.opts.data.fullScreen = document.fullscreenElement !== null;
+    });
+    window.addEventListener("beforeunload", () => this.saveOptions());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.saveOptions();
+    });
   }
 
   private inOngoing(): boolean {

@@ -25,6 +25,41 @@ export const KMouseSensitivityStep = 0.05;
 export const KPlayerNameMaxLength = 15;
 export const DEFAULT_MUSICTHEME = "default";
 
+/**
+ * `CGraphicsDevice::iResolutions` for the browser (the original queries SDL).
+ * Ascending, deduplicated, ≥ 320×200, as `ListVideoModes` builds it. The port's
+ * framebuffer stays at 640×480 and the presenter scales to the window, so this
+ * is a stored preference only (docs/12).
+ */
+export const VIDEO_MODES: readonly { readonly x: number; readonly y: number }[] = [
+  { x: 320, y: 200 },
+  { x: 320, y: 240 },
+  { x: 400, y: 300 },
+  { x: 512, y: 384 },
+  { x: 640, y: 480 },
+  { x: 800, y: 600 },
+  { x: 1024, y: 768 },
+  { x: 1152, y: 864 },
+  { x: 1280, y: 960 },
+  { x: 1600, y: 1200 },
+];
+
+/** `KDefaultResolution`. */
+export const KDefaultResolution = { x: 640, y: 480 } as const;
+
+/** `CGraphicsDevice::NextRes` / `PrevRes`. */
+export function stepResolution(
+  current: { x: number; y: number },
+  forward: boolean,
+): { x: number; y: number } {
+  const index = VIDEO_MODES.findIndex((m) => m.x === current.x && m.y === current.y);
+  if (index === -1) return { ...KDefaultResolution };
+  const next = forward
+    ? (index + 1) % VIDEO_MODES.length
+    : (index - 1 + VIDEO_MODES.length) % VIDEO_MODES.length;
+  return { x: VIDEO_MODES[next].x, y: VIDEO_MODES[next].y };
+}
+
 /** `TPlayerKeys`. */
 export const enum TPlayerKeys {
   LEFT = 0,
@@ -214,5 +249,10 @@ export class Options {
   /** `COptions::Reset`. */
   reset(): void {
     this.data.reset();
+  }
+
+  /** Re-runs the DM episode/level sanity checks (after loading saved options). */
+  validate(): void {
+    this.sanityCheck();
   }
 }

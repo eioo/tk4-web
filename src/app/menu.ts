@@ -97,7 +97,10 @@ export interface MenuHost {
   fullScreenChanged(): void;
   updateLargeTextMode(large: boolean): void;
   updateAudioChanges(): void;
+  updateGammaChanges(): void;
   cycleResolution(forward: boolean): void;
+  saveOptions(): void;
+  optionsReset(): void;
   requestQuit(): void;
 }
 
@@ -461,7 +464,7 @@ export class ExitItem extends MenuItem {
 export class ResetOptionsItem extends MenuItem {
   override handleKeyPress(key: KeyPress): MenuAction {
     if (this.actionKey(key)) {
-      this.parent.host.options().reset();
+      this.parent.host.optionsReset();
       this.parent.host.addMessage("Options reset!");
       return MenuAction.Processed;
     }
@@ -1209,6 +1212,8 @@ export class MainMenu extends MenuBase {
 
 /** `CGameMenuGameOptions`. */
 export class GameOptionsMenu extends MenuBase {
+  private readonly gammaItem: PercentItem;
+
   constructor(host: MenuHost) {
     super(host);
     const data = host.options().data;
@@ -1228,19 +1233,18 @@ export class GameOptionsMenu extends MenuBase {
         KMouseSensitivityStep,
       ),
     );
-    this.items.push(
-      new PercentItem(
-        this,
-        "gamma: ",
-        num(
-          () => data.gamma,
-          (v) => (data.gamma = v),
-        ),
-        0.1,
-        3.0,
-        0.1,
+    this.gammaItem = new PercentItem(
+      this,
+      "gamma: ",
+      num(
+        () => data.gamma,
+        (v) => (data.gamma = v),
       ),
+      0.1,
+      3.0,
+      0.1,
     );
+    this.items.push(this.gammaItem);
     this.items.push(new ResolutionItem(this, "game resolution: ", data.inGameVideoMode));
     this.items.push(
       new FullScreenItem(
@@ -1270,8 +1274,9 @@ export class GameOptionsMenu extends MenuBase {
     return MenuState.Options;
   }
 
-  override valueUpdated(): void {
-    // Gamma changes update the device (`UpdateGammaChanges`); a no-op here.
+  override valueUpdated(item: MenuItem): void {
+    // `CGameMenuGameOptions::ValueUpdated` — the gamma slider updates the device.
+    if (item === this.gammaItem) this.host.updateGammaChanges();
   }
 }
 

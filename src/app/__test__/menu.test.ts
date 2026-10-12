@@ -43,7 +43,10 @@ function makeHost(): { host: MenuHost; changes: MenuState[]; buffer: Framebuffer
     fullScreenChanged: () => {},
     updateLargeTextMode: () => {},
     updateAudioChanges: () => {},
+    updateGammaChanges: () => {},
     cycleResolution: () => {},
+    saveOptions: () => {},
+    optionsReset: () => options.reset(),
     requestQuit: () => {},
   };
   return { host, changes, buffer };

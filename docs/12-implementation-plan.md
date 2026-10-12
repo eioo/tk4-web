@@ -264,6 +264,33 @@ sensitivity, DM options, audio options; persist to `localStorage`.
 ✅ Options survive reload; rebinding rejects duplicates; defaults match the original.
 ⚠️ Use a versioned storage key.
 
+**Status:** in. `src/app/options-storage.ts` mirrors `COptions::Save`/`Load` as
+versioned JSON under `tk4-web.options.v1` (the original writes the raw
+`COptionsData` struct to `options.cfg`). Loading is defensive: unknown fields
+are ignored, numbers are clamped to the menu ranges (`gamma` 0.1–3.0, volumes
+0–1, sensitivities, DM speed, mouse mode 0–4, players 1–4), the
+`multiPlay*` episode/level pair is re-sanity-checked, and a missing/malformed
+entry leaves the `COptionsData::Reset` defaults. Names are trimmed and truncated
+like `COptions::Save`; a saved theme that no longer exists falls back to the
+first available one.
+
+Saving follows the reference: on the reset item (`COptions::Reset`+`Save`), when
+leaving the menu for a game or the quit flow (`CGameMenuContainer::ExitState`),
+and additionally on `beforeunload`/tab-hide and on each option-change hook
+(audio, gamma, large text, fullscreen, resolution) for robustness.
+
+The remaining `CGameGraphicsInterface` hooks are wired plausibly:
+`fullscreen` uses the Fullscreen API (syncing back on Esc), `large text` scales
+the small font (`UpdateLargeTextMode`), `gamma` is approximated with a CSS
+`brightness()` filter (`SDL_SetGamma` has no browser equivalent), and the
+`game resolution` slider cycles `CGraphicsDevice::NextRes`/`PrevRes` over a
+static mode list. The port's framebuffer stays 640×480 in-game and the presenter
+scales to the window, so the resolution is a remembered preference only.
+
+Key rebinding already matched `CGameMenuItemChangeKey` (binding a key clears the
+same key elsewhere); the reset item now goes through `host.optionsReset()` so
+audio/gamma/large-text are re-applied and the result is saved.
+
 ---
 
 ## M9 — Parity hardening
