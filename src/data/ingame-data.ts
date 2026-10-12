@@ -138,6 +138,17 @@ export interface IngameData {
 export type BytesLoader = (path: string) => Promise<Uint8Array>;
 
 /**
+ * Signature of the sprite-defining config values. `App` uses it to cache the
+ * generated sheets: per-level `<level>.ini` / episode `default.ini` overrides
+ * only trigger a reload when they actually change a source sprite path.
+ */
+export function ingameSignature(cfg: ConfigFile): string {
+  return SPRITE_SPECS.filter((spec) => spec.src === undefined)
+    .map((spec) => `${spec.key}=${cfg.get(spec.key) ?? ""}`)
+    .join("\n");
+}
+
+/**
  * Loads and generates the in-game sprite set. `load` resolves a path from the
  * merged config (e.g. `"efps/walls1.efp"`) to bytes.
  */

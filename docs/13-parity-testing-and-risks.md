@@ -110,7 +110,8 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   light rasteriser independently.
 - **Non-local players are static.** In the M3 replay a non-local player receives damage
   and push but is never moved (the original would move it on its own client). Fine for
-  single-machine traces; multiplayer emulation is out of scope.
+  single-machine traces; multiplayer (split-screen and WebRTC/WebSocket netplay) is
+  deferred to a later milestone.
 - **`std::sort` not stable.** Enemies/body parts are sorted by X each tick; ties can
   reorder. The oracle uses `std::stable_sort` and the port uses `Array.prototype.sort`
   (stable per spec), so the two agree with each other regardless of ties; this may still

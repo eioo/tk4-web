@@ -197,13 +197,24 @@ EF logo → TK logo → main menu → single game → episode select → level i
 ongoing, with the level info "killing list" and the running level/HUD drawn
 correctly; and (via direct state injection) the shop and statistics screens
 render with their own palettes (no more level-under-shop-palette corruption).
-Menu navigation is covered by `src/app/__test__/menu.test.ts`, the shop by
-`src/app/__test__/shop.test.ts` and the statistics/prize maths by
-`src/sim/__test__/statistics.test.ts`.
+The main menu shows the `4.09` version string in the bottom-left corner
+(`src/app/version.ts`). The in-game sprite set is resolved per level from the
+merged root `default.ini`, episode `<dir>/default.ini` and level `<level>.ini`
+(`App::levelConfig`, matching `CIngameData::LoadIngameData`); the generated
+sheets are only rebuilt when a per-level override actually changes a source
+sprite path. Menu navigation is covered by `src/app/__test__/menu.test.ts`,
+the shop by `src/app/__test__/shop.test.ts`, the statistics/prize maths by
+`src/sim/__test__/statistics.test.ts` and the per-level config/sprite
+signature by `src/data/__test__/ingame-data.test.ts`.
 
-Still pending: the level-select/game-mode multiplay wiring beyond the menu
-skeleton, deathmatch frags/scoring, and the version string and per-level
-`<level>.ini` overrides.
+Deferred until later milestones (planned, not dropped): the level-select/
+game-mode **multiplay** wiring and **deathmatch** frags/scoring. The original's
+multiplayer is network play (plus local split-screen for up to four players,
+`CDynGameData::SetLocalPlayers`); the plan is to add split-screen and a
+WebRTC/WebSocket netplay layer in a later pass, so for now the game-mode/
+level-select menus are present but only cooperative single-player is
+playable. Kill/suicide frag texts (per-level `FragText`/`SuicideText`) are
+likewise unused until deathmatch lands.
 
 ---
 
@@ -245,6 +256,21 @@ reports drift. Presentation path hits 60 fps at 640×480 (and higher modes).
 non-parity save.
 
 ✅ `bun run build` yields a deployable static site that runs the game end-to-end.
+
+---
+
+## Deferred — Multiplayer (split-screen + netplay)
+
+🎯 Local **split-screen** for up to four players and a **WebRTC/WebSocket**
+netplay layer (lobby + player state sync), which in turn brings back
+**deathmatch** frags/scoring and the per-level `FragText`/`SuicideText`
+messages.
+
+The pieces are already in place to build on: the game-mode/level-select menu
+trees, `IGameMode` variants (`GameMode.frags()`/`startFromAnyLevel()`, …), the
+per-player HUD/minimap and the split-screen draw-rect plumbing, and a
+simulation that already carries non-local players (static until then). Postponed
+by request; the single-player cooperative flow is complete without it.
 
 ---
 

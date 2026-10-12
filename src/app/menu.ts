@@ -30,6 +30,7 @@ import {
   KEffectVolumeStep,
   DEFAULT_MUSICTHEME,
 } from "./options";
+import { KGameVersion } from "./version";
 
 export const enum MenuState {
   Quit = -1,
@@ -192,6 +193,21 @@ export abstract class MenuBase {
         this.activeItem === a ? 1 : 0,
       );
     }
+
+    // `CGameMenuBase::Draw` paints the version in the bottom-left corner.
+    const version = fonts.get(GameFont.SmallMenuFontDark);
+    fontWrite(
+      version.font,
+      buffer,
+      0,
+      buffer.height,
+      KGameVersion,
+      VAlign.Above,
+      HAlign.ToRight,
+      version.oneIsZero,
+      version.scaleX,
+      version.scaleY,
+    );
   }
 
   valueUpdated(item: MenuItem): void {

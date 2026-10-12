@@ -63,6 +63,24 @@ describe("menu framework", () => {
     expect(nonZero).toBe(true);
   });
 
+  test("draws the version string in the bottom-left corner", () => {
+    const { host, buffer } = makeHost();
+    const container = new MenuContainer(host);
+    container.enterState();
+    buffer.clear(0);
+    container.draw();
+    let found = false;
+    for (let y = buffer.height - 18; y < buffer.height && !found; y++) {
+      for (let x = 0; x < 80; x++) {
+        if (buffer.pixels[y * buffer.width + x] !== 0) {
+          found = true;
+          break;
+        }
+      }
+    }
+    expect(found).toBe(true);
+  });
+
   test("navigates to single game and opens the episode select", () => {
     const { host, changes } = makeHost();
     const container = new MenuContainer(host);

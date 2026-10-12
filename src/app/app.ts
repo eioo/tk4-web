@@ -11,9 +11,9 @@
 import { createLoop, type Loop } from "../core/loop";
 import { GlibcRandom } from "../core/rng";
 import { decodePaletteTab } from "../data/color-tables";
-import { mergeIni } from "../data/config";
+import { mergeIni, type ConfigFile } from "../data/config";
 import { decodeFnt, fontWrite, fontLength, HAlign, VAlign } from "../data/font";
-import { loadIngameData, type IngameData } from "../data/ingame-data";
+import { ingameSignature, loadIngameData, type IngameData } from "../data/ingame-data";
 import { loadLevel, type Level } from "../data/level";
 import { loadMenuData, PaletteNo, type MenuData } from "../data/menu-data";
 import { createPalette, type Palette } from "../data/palette";
@@ -151,8 +151,13 @@ export class App implements MenuHost {
   private savedState: { main: MainState; sub: number } | null = null;
 
   private gameMode = new GameMode(false);
+  private episode = 0;
   private currentLevel = 0;
   private levelsInEpisode = 0;
+  private rootCfgText = "";
+  private levelConfigs = new Map<string, Promise<ConfigFile>>();
+  private ingameSignature = "";
+  private nextLevelPending = false;
   private levelBytes = new Map<number, Uint8Array>();
   private levelData = new Map<number, Level>();
   private session: GameSession | null = null;
@@ -203,10 +208,13 @@ export class App implements MenuHost {
       this.loadText("default.ini"),
       this.loadBytes("palette.tab"),
     ]);
+    this.rootCfgText = cfgText;
+    const rootCfg = mergeIni(cfgText);
     this.menuData = await loadMenuData(this.loadBytes);
     const paletteTab = decodePaletteTab(paletteTabBytes);
     void paletteTab;
-    this.ingame = await loadIngameData(mergeIni(cfgText), this.loadBytes);
+    this.ingame = await loadIngameData(rootCfg, this.loadBytes);
+    this.ingameSignature = ingameSignature(rootCfg);
     this.ingamePalette = this.ingame.palette;
     this.drawer = new GameDrawer(paletteTab);
 
@@ -561,6 +569,7 @@ export class App implements MenuHost {
   /** `CGameSystem::Init` — kicks off an async level preload, then fades out. */
   private startGame(mode: GameMode, episode: number, startLevel: number): void {
     this.gameMode = mode;
+    this.episode = episode;
     const epi = this.opts.episode(episode, mode.dmEpisodes());
     this.levelsInEpisode = epi.levels.length;
     if (this.levelsInEpisode <= 0 || startLevel >= this.levelsInEpisode) {
@@ -587,7 +596,9 @@ export class App implements MenuHost {
       files.map(async (file, index) => {
         this.levelBytes.set(index, await this.loadBytes(file));
       }),
-    ).then(() => this.startFadeOut(MainState.Game, GameState.NextLevel));
+    )
+      .then(() => this.ensureLevelIngame(episode, startLevel))
+      .then(() => this.startFadeOut(MainState.Game, GameState.NextLevel));
   }
 
   private levelFor(index: number): Level | null {
@@ -600,8 +611,67 @@ export class App implements MenuHost {
     return level;
   }
 
+  /**
+   * `CIngameData::LoadIngameData` config resolution: the merged root
+   * `default.ini`, the episode `<dir>/default.ini` and the level `<file>.ini`
+   * (level wins, then episode, then root). Cached per episode/level.
+   */
+  private levelConfig(episode: number, levelIndex: number): Promise<ConfigFile> {
+    const key = `${this.gameMode.dmEpisodes() ? "dm" : "sp"}:${episode}:${levelIndex}`;
+    const cached = this.levelConfigs.get(key);
+    if (cached) return cached;
+    const promise = this.loadLevelConfig(episode, levelIndex);
+    this.levelConfigs.set(key, promise);
+    return promise;
+  }
+
+  private async loadLevelConfig(episode: number, levelIndex: number): Promise<ConfigFile> {
+    const epi = this.opts.episode(episode, this.gameMode.dmEpisodes());
+    const level = epi.levels[levelIndex];
+    const slash = level.file.lastIndexOf("/");
+    const dir = slash >= 0 ? level.file.slice(0, slash) : "";
+    const episodeText = dir ? await this.loadOptionalText(`${dir}/default.ini`) : undefined;
+    const levelText = await this.loadOptionalText(level.file.replace(/\.lev$/i, ".ini"));
+    return mergeIni(levelText, episodeText, this.rootCfgText);
+  }
+
+  private async loadOptionalText(path: string): Promise<string | undefined> {
+    try {
+      return await this.loadText(path);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Loads the level's in-game sprite set, honouring per-level/episode `.ini`
+   * overrides. The generated sheets are only rebuilt when the resolved sprite
+   * paths actually changed (the shipped episodes never override them).
+   */
+  private async ensureLevelIngame(episode: number, levelIndex: number): Promise<void> {
+    try {
+      const cfg = await this.levelConfig(episode, levelIndex);
+      const signature = ingameSignature(cfg);
+      if (signature === this.ingameSignature) return;
+      this.ingame = await loadIngameData(cfg, this.loadBytes);
+      this.ingameSignature = signature;
+      this.ingamePalette = this.ingame.palette;
+    } catch (err) {
+      // Fall back to the already-loaded set rather than stalling the level flow.
+      this.messageBoard.addMessage(
+        `Ingame data load failed: ${err instanceof Error ? err.message : String(err)}`,
+        this.clock,
+      );
+    }
+  }
+
   private runNextLevel(): void {
-    this.setState(MainState.Game, GameState.LevelInfo);
+    if (this.nextLevelPending) return;
+    this.nextLevelPending = true;
+    void this.ensureLevelIngame(this.episode, this.currentLevel).then(() => {
+      this.nextLevelPending = false;
+      this.setState(MainState.Game, GameState.LevelInfo);
+    });
   }
 
   private runLevelInfo(): void {
