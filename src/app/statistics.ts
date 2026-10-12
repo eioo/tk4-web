@@ -157,14 +157,15 @@ function drawPlayerInfo(
     b += height;
   }
 
-  if (s.playerKills && ctx.frags) {
+  const plyKills = ctx.stats.totalPlayerKills(0);
+  if (plyKills && ctx.frags) {
     b += height;
     fontWrite(
       font.font,
       fb,
       16 + horizStart,
       b,
-      `${s.playerKills} Frags`,
+      `${plyKills} Frags`,
       VAlign.Below,
       HAlign.ToRight,
       font.oneIsZero,
@@ -172,7 +173,7 @@ function drawPlayerInfo(
       font.scaleY,
     );
     b += height;
-    writeLine(ctx, font, 16 + horizStart, b, `Total kills: ${totalKills(s) + s.playerKills}`);
+    writeLine(ctx, font, 16 + horizStart, b, `Total kills: ${totalKills(s) + plyKills}`);
   } else {
     writeLine(ctx, font, 16 + horizStart, b, `Total kills: ${totalKills(s)}`);
   }

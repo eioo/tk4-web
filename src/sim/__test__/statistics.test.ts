@@ -36,6 +36,22 @@ describe("CGameStatisticsData accounting", () => {
     expect(totalKills(stats.levelStats(0, 0))).toBe(1);
     expect(totalKills(stats.levelStats(0, 1))).toBe(1);
   });
+
+  test("deathmatch frags count others and subtract suicides", () => {
+    const stats = new GameStatistics();
+    stats.addPlayer("John");
+    stats.addPlayer("Paul");
+    stats.addPlayer("George");
+    stats.recording = 0;
+    stats.latest = 0;
+    stats.addPlayerKill(0, 1); // John kills Paul
+    stats.addPlayerKill(0, 1); // John kills Paul again
+    stats.addPlayerKill(0, 0); // John suicides
+    stats.addPlayerKill(1, 0); // Paul kills John
+    expect(stats.totalPlayerKills(0)).toBe(1); // 2 - 1 suicide
+    expect(stats.totalPlayerKills(1)).toBe(1);
+    expect(stats.totalPlayerKills(2)).toBe(0);
+  });
 });
 
 describe("CGameSubStateStatistics::GivePlayerPrize", () => {

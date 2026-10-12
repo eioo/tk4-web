@@ -139,6 +139,11 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   `simreference.h` together. Non-local players remain static on the client side by design
   until netplay (M13); the original's network code is compiled-out dead code
   (`network.cpp` `Send`/`Available` are empty), so there is no wire format to match.
+- **Deathmatch is browser-verified, not oracle-verified.** The parity oracle models the
+  cooperative path; it does not model `CPlayer::RandomPlace`, the `FragText`/`SuicideText`
+  `rand()` draw on a player kill, or the DM respawn, all of which consume the shared RNG.
+  The coop scenarios are unchanged and still byte-exact; a DM trace would require extending
+  `simreference.h` (docs/12 M12).
 - **`CEnemy::SoundHeard` is modelled.** The oracle now mirrors `CEnemy::SoundHeard`
   (positional samples make nearby hostile enemies with line of sight start an assault),
   and the `combat` scenario exercises it; `SimWorld.hearSounds` is on for both sides.

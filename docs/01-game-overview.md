@@ -28,10 +28,12 @@ is `(100 + 30*10)/3` at spawn; player speed comes from `iDMSpeed` (default
 `KPlayerRunSpeed=1.0`); the target system can be enabled (`iDMTargetSystem`).
 DM uses its own episodes/crates (`dm.lev` and `DMEpisodes`).
 
-**Gameplay networking is not implemented.** `network.cpp` only wraps `SDLNet_Init`/
-`SDLNet_Quit` and an HTTP GET client used by the version checker; the IPX/NetWare
-code is commented out and all send/receive functions are no-ops. "Multiplayer" in
-practice = local split-screen. The web port can treat networking as out of scope.
+**Gameplay networking is not implemented in the original.** `network.cpp` only wraps
+`SDLNet_Init`/`SDLNet_Quit` and an HTTP GET client used by the version checker; the
+IPX/NetWare code is commented out and all send/receive functions are no-ops. "Multiplayer"
+in practice = local split-screen. The web port implements that split-screen (up to four
+players) and deathmatch (docs/12 M11/M12); playable netplay is a **greenfield** addition
+(WebRTC/WebSocket, M13), not a port of the dead code.
 
 ## Campaign flow (cooperative)
 

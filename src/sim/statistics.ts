@@ -14,8 +14,12 @@ import { EEnemyAmount } from "./types";
 /** `CGameStatisticsData::TPlayerLevelStats`. */
 export interface PlayerLevelStats {
   enemyKills: number[];
-  /** Kills of other players (deathmatch frags). */
-  playerKills: number;
+  /**
+   * `iPlayerKills` — deathmatch frags keyed by the victim's player index.
+   * `TotalPlayerKills` treats an entry for the killer itself (a suicide) as
+   * negative.
+   */
+  playerKills: Map<number, number>;
   /** Rounds fired. */
   roundsShot: number;
   /** Rounds that connected; may be fractional for shared explosions. */
@@ -25,7 +29,7 @@ export interface PlayerLevelStats {
 export function makeLevelStats(): PlayerLevelStats {
   return {
     enemyKills: Array.from({ length: EEnemyAmount }, () => 0),
-    playerKills: 0,
+    playerKills: new Map(),
     roundsShot: 0,
     roundsHit: 0,
   };
@@ -92,9 +96,11 @@ export class GameStatistics {
     this.levelStats(player, this.recording).enemyKills[type]++;
   }
 
-  addPlayerKill(player: number): void {
+  /** `TPlayerLevelStats::AddPlayerKill( aPlayer )` — `victim` is the killed index. */
+  addPlayerKill(player: number, victim: number): void {
     if (player < 0 || player >= this.players.length) return;
-    this.levelStats(player, this.recording).playerKills++;
+    const s = this.levelStats(player, this.recording);
+    s.playerKills.set(victim, (s.playerKills.get(victim) ?? 0) + 1);
   }
 
   playerDied(player: number): void {
@@ -102,8 +108,14 @@ export class GameStatistics {
     this.players[player].levelOfDeath = this.recording;
   }
 
-  /** `TPlayerLevelStats::TotalPlayerKills` — suicides subtract from the total. */
+  /**
+   * `TPlayerLevelStats::TotalPlayerKills( aSelf )` — sum of frags on others
+   * minus this player's own suicides.
+   */
   totalPlayerKills(player: number): number {
-    return this.latestLevelStats(player).playerKills;
+    let total = 0;
+    for (const [victim, amount] of this.latestLevelStats(player).playerKills)
+      total += victim === player ? -amount : amount;
+    return total;
   }
 }

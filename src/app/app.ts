@@ -29,6 +29,7 @@ import { GameStatistics } from "../sim/statistics";
 import { EnemyTypes, SoundEffect, type SoundEvent, WeaponId, WeaponTypes } from "../sim/types";
 import { Key, MouseButton, type SimInput, type SimPlayer } from "../sim/world";
 import { FONT_FILES, GameFont, SystemFonts } from "./fonts";
+import { GameMode } from "./game-mode";
 import { GameSession, makeStartPlayer } from "./game-session";
 import { codeToSdlKey, SDLK } from "./keys";
 import { MenuContainer, MenuState, type KeyPress, type MenuHost, type MenuItem } from "./menu";
@@ -69,39 +70,6 @@ const enum GameState {
   LevelInfo,
   Quit,
   Amount,
-}
-
-/** `IGameMode` — cooperative (attack) or deathmatch. */
-class GameMode {
-  constructor(readonly dm: boolean) {}
-
-  name(): string {
-    return this.dm ? "deathmatch" : "cooperative";
-  }
-  startFromAnyLevel(): boolean {
-    return this.dm;
-  }
-  frags(): boolean {
-    return this.dm;
-  }
-  dmEpisodes(): boolean {
-    return this.dm;
-  }
-  crateRespawn(): boolean {
-    return this.dm;
-  }
-  actionTimeMatters(): boolean {
-    return !this.dm;
-  }
-  disableEnemiesPossible(): boolean {
-    return this.dm;
-  }
-  shopEnabled(level: number): boolean {
-    return !this.dm && level >= 1;
-  }
-  hidePlayersFromMap(): boolean {
-    return this.dm;
-  }
 }
 
 interface EffectState {
@@ -623,8 +591,13 @@ export class App implements MenuHost {
     this.players = Array.from({ length: count }, () => makeStartPlayer());
     this.player = this.players[0];
     this.stats = new GameStatistics();
-    for (let i = 0; i < count; i++)
-      this.stats.addPlayer(this.opts.data.name[i] || "Unknown soldier");
+    for (let i = 0; i < count; i++) {
+      const name = this.opts.data.name[i] || "Unknown soldier";
+      this.players[i].name = name;
+      this.stats.addPlayer(name);
+      // `CDynGameData::SetupPlayers` + `IGameMode::SetupPlayerEpisode`.
+      mode.setupPlayerEpisode(this.players[i]);
+    }
     this.stats.recording = startLevel;
     this.shop = new DynShopData();
     this.shopRng = new GlibcRandom((Date.now() / 1000) >>> 0);
@@ -812,6 +785,12 @@ export class App implements MenuHost {
         names,
         kills: players.map(() => 0),
       },
+      this.gameMode,
+      {
+        enemiesOnGame: this.opts.data.enemiesOnGame,
+        dmSpeed: this.opts.data.dmSpeed,
+        dmTargetSystem: this.opts.data.dmTargetSystem,
+      },
       (Date.now() / 1000) >>> 0,
       players,
       this.stats,
@@ -835,9 +814,11 @@ export class App implements MenuHost {
     if (!session) return;
     session.currentFps = Math.trunc(this.fps);
     session.step(this.gameInput());
+    for (const message of session.world.messages) this.messageBoard.addMessage(message, this.clock);
+    session.world.messages.length = 0;
     this.playSounds(session.world.sounds);
     session.world.sounds.length = 0;
-    if (session.allPlayersDead()) {
+    if (this.gameMode.gameOver(session.allPlayersDead())) {
       session.completeTime = session.timeLimit;
       this.gameOver = true;
       this.finishLevel();

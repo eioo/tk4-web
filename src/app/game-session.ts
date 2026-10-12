@@ -29,12 +29,12 @@ import { BulletId, WeaponId } from "../sim/types";
 import {
   KPlayerColor,
   KPlayerMaxEnergy,
-  KPlayerNormalSpeed,
   KShieldEnergyAmount,
   SimPlayer,
   SimWorld,
   type SimInput,
 } from "../sim/world";
+import type { GameMode } from "./game-mode";
 
 /** `KTimerFreq` — sim ticks per second. */
 const KTimerFreq = 100;
@@ -69,34 +69,6 @@ export function makeStartPlayer(): SimPlayer {
   p.curWeapon = WeaponId.Fist;
   p.cash = 500;
   return p;
-}
-
-/** `CPlayer::Reset` + `PreparePlayersForLevel` for one level (position set separately). */
-export function resetPlayerState(p: SimPlayer): void {
-  p.angle = 0;
-  p.targetAngle = 0;
-  p.dead = 0;
-  p.hit = 0;
-  p.burning = 0;
-  p.fryingObserver = -1;
-  p.pushPower = 0;
-  p.pushAngle = 0;
-  p.anim = 0;
-  p.kick = 0;
-  p.fire = 0;
-  p.fire2 = 0;
-  p.loadCounter = 0;
-  p.loadCounter2 = 0;
-  p.secondaryCounter = 0;
-  p.shootCount = 0;
-  p.weaponInHand = false;
-  p.noDamage = false;
-  p.speed = KPlayerNormalSpeed;
-  p.energy = KPlayerMaxEnergy + p.shield * KShieldEnergyAmount;
-
-  // `CPlayer::Reset` drops weapons the player no longer owns.
-  if (p.weapons[p.curWeapon] <= 0) p.curWeapon = WeaponId.Fist;
-  if (p.secWeapon !== 0 && p.weapons[p.secWeapon] < 2) p.secWeapon = 0;
 }
 
 /** `CPlayer::SetColorByIndex`. */
@@ -161,6 +133,16 @@ function placePlayersForLevel(world: SimWorld, players: SimPlayer[]): void {
   }
 }
 
+/** Mode/option values the session needs from `App` (docs/12 M12). */
+export interface ModeOptions {
+  /** `iEnemiesOnGame` — with `DisableEnemiesPossible()` decides enemy spawning. */
+  enemiesOnGame: boolean;
+  /** `OptionsData.dmSpeed`. */
+  dmSpeed: number;
+  /** `OptionsData.dmTargetSystem`. */
+  dmTargetSystem: boolean;
+}
+
 export class GameSession {
   readonly world: SimWorld;
   /** Seat 0 (the shop / statistics "current" player). */
@@ -184,6 +166,8 @@ export class GameSession {
     readonly fb: Framebuffer,
     readonly dark: Uint8Array,
     readonly hud: SessionHud,
+    readonly mode: GameMode,
+    readonly modeOptions: ModeOptions,
     seed: number,
     players: SimPlayer[],
     stats: GameStatistics | null,
@@ -199,22 +183,41 @@ export class GameSession {
     this.drawRects = playerDrawRects(fb.width, fb.height, players.length);
     this.blackRects = blackRects(fb.width, fb.height, players.length);
 
-    // `CDynGameData::PreparePlayersForLevel`: place all seats, then reset state
-    // and assign each its viewport + colour.
-    placePlayersForLevel(this.world, players);
+    // Mode + option flags (`CDynGameData::SetLevels` reads the same values).
+    const world = this.world;
+    world.frags = mode.frags();
+    world.crateRespawn = mode.crateRespawn();
+    world.dmCrates = mode.dmCrates();
+    world.randomPlacePlayers = mode.randomPlacePlayers();
+    world.enemiesEnabled = modeOptions.enemiesOnGame || !mode.disableEnemiesPossible();
+    world.dmSpeed = modeOptions.dmSpeed;
+    world.dmTargetSystem = modeOptions.dmTargetSystem;
+    world.killTexts = ingame.killTexts;
+    world.suicideTexts = ingame.suicideTexts;
+    world.mouseOwner = players.length > 0 ? 0 : -1;
+    world.mouseSensitivity = 0.5;
+    world.textLength = (text: string) => fontLength(this.hud.font, text);
+    world.players = players;
+
+    // Viewports + colours must be set before `Reset`/`InitScr` use them.
     for (let i = 0; i < players.length; i++) {
-      resetPlayerState(players[i]);
       players[i].drawRect = this.drawRects[i];
       setColorByIndex(players[i], i);
     }
 
-    // Only seat 0 owns the mouse by default (mission: `iMouseMode` 1..N).
-    this.world.mouseOwner = players.length > 0 ? 0 : -1;
-    this.world.mouseSensitivity = 0.5;
-    this.world.textLength = (text: string) => fontLength(this.hud.font, text);
-    this.world.players = players;
-    for (const p of players) this.world.initScr(p);
-    this.world.spawnEntities();
+    // `CDynGameData::SetLevels`: start-point placement, entities, then the DM
+    // random placement — all before `PreparePlayersForLevel` resets the players.
+    placePlayersForLevel(world, players);
+    world.spawnEntities();
+    if (world.randomPlacePlayers) for (const p of players) world.randomPlace(p);
+
+    // `PreparePlayersForLevel`: reset each player, set energy from the shield,
+    // then apply the mode's per-level setup (DM energy/speed/target system).
+    for (const p of players) {
+      world.resetPlayer(p);
+      p.energy = KPlayerMaxEnergy + p.shield * KShieldEnergyAmount;
+      mode.setupPlayerLevel(p, modeOptions.dmSpeed, modeOptions.dmTargetSystem);
+    }
   }
 
   /** The mouse owner as a world index (`CDynGameData::UpdateMouseOwner`). */
@@ -226,7 +229,7 @@ export class GameSession {
   step(inputs: readonly SimInput[]): void {
     this.world.tick(inputs);
     if (this.nextLevel > 0) this.nextLevel++;
-    if (this.world.enemies.length === 0 && this.nextLevel <= 0) this.nextLevel = 1;
+    if (this.nextLevel <= 0 && this.objectiveFulfilled()) this.nextLevel = 1;
     this.timerCounter++;
     // `CGameDrawManager::DrawTime` — freeze the clock once the level is done.
     if (this.nextLevel <= 0) {
@@ -306,9 +309,9 @@ export class GameSession {
     drawGlobalHud(base);
   }
 
-  /** `IGameMode::ObjectiveFulfilled` for cooperative play. */
+  /** `IGameMode::ObjectiveFulfilled` — cooperative ends when the enemies are dead. */
   objectiveFulfilled(): boolean {
-    return this.world.enemies.length === 0;
+    return this.mode.objectiveFulfilled(this.world.enemies.length === 0);
   }
 
   allPlayersDead(): boolean {

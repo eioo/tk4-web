@@ -168,6 +168,8 @@ export class SimPlayer {
   cash = 0;
   targetSystem = false;
   local = true;
+  /** `CPlayer::iName` — shown in deathmatch kill messages and statistics. */
+  name = "";
   /** `CPlayer::iColor` — `KPlayerColor[i]`, used for the recolour and minimap dot. */
   color = 16 * 3;
   /**
@@ -202,6 +204,23 @@ export class SimWorld {
   frags = false;
   /** `IGameMode::CrateRespawn()` — cooperative is false. */
   crateRespawn = false;
+  /** `IGameMode::DMCrates()` — deathmatch places the DM crate lists. */
+  dmCrates = false;
+  /** `iEnemiesOnGame || !DisableEnemiesPossible()` — spawn enemies this level. */
+  enemiesEnabled = true;
+  /** `CGameSystem::CharacterDied` — cooperative death notification to the session. */
+  onCharacterDied: ((index: number, p: SimPlayer) => void) | null = null;
+  /** `IGameMode::RandomPlacePlayers()` — DM scatters players instead of start points. */
+  randomPlacePlayers = false;
+  /** `OptionsData.dmSpeed` — deathmatch player move speed. */
+  dmSpeed = KPlayerNormalSpeed;
+  /** `OptionsData.dmTargetSystem` — deathmatch gives everyone a target system. */
+  dmTargetSystem = false;
+  /** `CIngameData::iKillTexts` / `iSuicideTexts`, formatted on a player kill. */
+  killTexts: readonly string[] = [];
+  suicideTexts: readonly string[] = [];
+  /** Kill/suicide messages emitted this tick; the app drains them to the board. */
+  readonly messages: string[] = [];
   /** `CFonts::Length` for the small in-game font (crate pickup text). */
   textLength: (text: string) => number = (text) => text.length;
   /** `CGameStatisticsData` sink, if any (see `src/sim/statistics.ts`). */
@@ -408,14 +427,25 @@ export class SimWorld {
     this.playPosSound(fx, posX, posY);
   }
 
-  /** `CPlayer::GetDamage`. */
-  getDamage(p: SimPlayer, damage: number, _observer: number): void {
+  /** `CPlayer::GetDamage`. `observer`/`victimIndex` are player indices (`-1` = enemy). */
+  getDamage(p: SimPlayer, damage: number, observer: number, victimIndex: number): void {
     if (p.dead) return;
     if (p.noDamage) return;
     p.hit = 15;
     p.energy = f32(p.energy - damage);
     if (p.energy <= 0) {
       p.energy = 0;
+      // `IGameMode::Frags()` + a player observer (enemy killers hit the empty
+      // `CCharacter::BulletPlayerKill` base, so they never count as a frag).
+      if (this.frags && observer >= 0) {
+        const killer = this.players[observer];
+        const text =
+          observer === victimIndex
+            ? this.randomText(this.suicideTexts, [killer?.name ?? ""])
+            : this.randomText(this.killTexts, [killer?.name ?? "", p.name]);
+        if (text !== null) this.messages.push(text);
+        this.stats?.addPlayerKill(observer, victimIndex);
+      }
       if (p.burning) {
         this.playFlatSound(SoundEffect.Woosh);
         this.newEffect(EffectId.Explo, p.x + 12, p.y + 12, 0, 0);
@@ -427,8 +457,17 @@ export class SimWorld {
             this.newEffect(EffectId.Blood, p.x + 15, p.y + 15, Math.trunc(a * 22.5), 2);
         this.playFlatSound(SoundEffect.Death);
       }
+      this.stats?.playerDied(victimIndex);
       p.dead = 1;
     }
+  }
+
+  /** `CIngameData::RandomKillText` / `RandomSuicideText` — `sprintf` with `%s` args. */
+  private randomText(texts: readonly string[], args: string[]): string | null {
+    if (texts.length === 0) return null;
+    const template = texts[this.rng.rand() % texts.length];
+    let i = 0;
+    return template.replace(/%s/g, () => args[i++] ?? "");
   }
 
   private checkWalls(mode: Direction, nx: number, ny: number): boolean {
@@ -579,7 +618,7 @@ export class SimWorld {
                 pl.burning += 15;
                 pl.fryingObserver = b.ownerId;
               }
-              if (t.power > 0) this.getDamage(pl, t.power, b.ownerId);
+              if (t.power > 0) this.getDamage(pl, t.power, b.ownerId, bi);
             }
           }
         }
@@ -1050,7 +1089,7 @@ export class SimWorld {
     if (p.secondaryCounter > 0) p.secondaryCounter--;
   }
 
-  private animate(p: SimPlayer): void {
+  private animate(index: number, p: SimPlayer): void {
     p.anim = 1;
     if (p.walk) {
       if (p.walk - 1 < KWalkAnimationDelay) p.walk++;
@@ -1074,6 +1113,7 @@ export class SimWorld {
       // (int)(6 + ((float)(iDead-1)/KDeadAnimationDelay)*3)
       p.anim = Math.trunc(f32(6 + f32(f32((p.dead - 1) / KDeadAnimationDelay) * 3)));
       if (p.anim > 8) p.anim = 8;
+      if (p.dead - 1 === KDeadAnimationDelay) this.characterDied(index, p);
     }
     if (p.kick) {
       p.kick++;
@@ -1112,6 +1152,124 @@ export class SimWorld {
   initScr(p: SimPlayer): void {
     p.screenX = Math.trunc(p.x - idiv(rectWidth(p.drawRect), 2));
     p.screenY = Math.trunc(p.y - idiv(rectHeight(p.drawRect), 2));
+  }
+
+  /**
+   * `CPlayer::Reset` — clears per-life state. `InitScr` uses `p.drawRect`, so
+   * the caller must assign the viewport first. Energy is set by the caller
+   * (`PreparePlayersForLevel` / deathmatch respawn), matching the original.
+   */
+  resetPlayer(p: SimPlayer): void {
+    p.noDamage = false;
+    p.anim = 0;
+    p.pushPower = 0;
+    p.burning = 0;
+    p.fryingObserver = -1;
+    p.dead = 0;
+    if (p.weapons[p.curWeapon] <= 0) {
+      p.curWeapon = WeaponId.Fist;
+      p.secWeapon = 0;
+    }
+    if (p.secWeapon !== 0 && p.weapons[p.secWeapon] < 2) p.secWeapon = 0;
+    p.kick = 0;
+    p.hit = 0;
+    p.fire = 0;
+    p.fire2 = 0;
+    p.angle = 0;
+    p.targetAngle = 0;
+    this.initScr(p);
+    p.loadCounter = 0;
+    p.loadCounter2 = 0;
+    p.secondaryCounter = 0;
+    p.shootCount = 0;
+    p.weaponInHand = false;
+    p.walk = 0;
+    p.speed = KPlayerNormalSpeed;
+  }
+
+  /** `CPlayer::TotalReset` — wipes loadout/score then {@link resetPlayer}. */
+  totalReset(p: SimPlayer): void {
+    p.targetSystem = false;
+    p.energy = 0;
+    p.shield = 0;
+    p.cash = 0;
+    for (let a = 1; a < p.weapons.length; a++) p.weapons[a] = 0;
+    for (let a = 1; a < p.bullets.length; a++) p.bullets[a] = 0;
+    p.weapons[WeaponId.Fist] = 1;
+    p.bullets[BulletId.Fist] = 1;
+    this.resetPlayer(p);
+  }
+
+  /**
+   * `CDynGameData::CharacterDied` (dispatched through `IGameMode`). Deathmatch
+   * respawns the player at a random floor block; cooperative notifies the
+   * session (which ends the level when everyone is dead).
+   */
+  private characterDied(index: number, p: SimPlayer): void {
+    if (!this.frags) {
+      this.onCharacterDied?.(index, p);
+      return;
+    }
+    // CGameModeDeathmatch::CharacterDied.
+    this.newEffect(EffectId.Teleport, p.x + 14, p.y + 14, 0, 0);
+    this.totalReset(p);
+    p.speed = this.dmSpeed;
+    this.randomPlace(p);
+    this.initScr(p);
+    this.newEffect(EffectId.Teleport, p.x + 14, p.y + 14, 0, 0);
+    p.shield = 30;
+    p.energy = Math.trunc((KPlayerMaxEnergy + p.shield * KShieldEnergyAmount) / 3);
+    if (this.dmTargetSystem) p.targetSystem = true;
+  }
+
+  /** `CPlayer::RandomPlace` — pick a reachable floor block away from enemies/players. */
+  randomPlace(p: SimPlayer): void {
+    const w = this.level.width;
+    const h = this.level.height;
+    let testCount = 0;
+    let badLocation: boolean;
+    do {
+      badLocation = false;
+      const easyMode = testCount > 200;
+      let x: number;
+      let y: number;
+      if (easyMode) {
+        x = (this.rng.rand() % w) * KBlockSpriteSize;
+        y = (this.rng.rand() % h) * KBlockSpriteSize;
+      } else {
+        x = this.rng.rand() % (w * KBlockSpriteSize);
+        y = this.rng.rand() % (h * KBlockSpriteSize);
+      }
+      p.x = x;
+      p.y = y;
+
+      const bx = idiv(x, KBlockSpriteSize);
+      const by = idiv(y, KBlockSpriteSize);
+      if (levelData(this.level, bx, by).type !== 0) badLocation = true;
+      if (y % KBlockSpriteSize)
+        if (levelData(this.level, bx, by + 1).type !== 0) badLocation = true;
+      if (y % KBlockSpriteSize && x % KBlockSpriteSize)
+        if (levelData(this.level, bx + 1, by + 1).type !== 0) badLocation = true;
+      if (x % KBlockSpriteSize)
+        if (levelData(this.level, bx + 1, by).type !== 0) badLocation = true;
+
+      if (!badLocation) {
+        const eta = easyMode ? 30 : 100;
+        for (const e of this.enemies)
+          if (getDist(p.x, p.y, e.x, e.y) < eta) {
+            badLocation = true;
+            break;
+          }
+      }
+      for (const other of this.players)
+        if (other !== p && getDist(p.x, p.y, other.x, other.y) < 30) badLocation = true;
+
+      testCount++;
+      if (testCount >= 10000) {
+        // Original throws; keep the last candidate rather than hang.
+        break;
+      }
+    } while (badLocation);
   }
 
   // ---------------------------------------------------------------------
@@ -1414,7 +1572,7 @@ export class SimWorld {
   }
 
   /** `CCharacter::CheckBurning` for a player. */
-  private playerCheckBurning(p: SimPlayer): void {
+  private playerCheckBurning(index: number, p: SimPlayer): void {
     if (p.burning) {
       p.burning--;
       if (this.steamAnimationCount % 15 === 0)
@@ -1426,13 +1584,16 @@ export class SimWorld {
         const xx = p.x + (10 + (this.rng.rand() % 8));
         this.newEffect(EffectId.Flame2, xx, yy, 315, 1);
       }
-      this.getDamage(p, 0.1, p.fryingObserver);
+      this.getDamage(p, 0.1, p.fryingObserver, index);
     }
   }
 
   /** `CDynGameData::CheckBurn`. */
   private checkBurn(): void {
-    for (const p of this.players) if (!p.dead) this.playerCheckBurning(p);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      if (!p.dead) this.playerCheckBurning(i, p);
+    }
     for (let i = 0; i < this.enemies.length;) {
       if (this.enemyCheckBurning(this.enemies[i])) this.killEnemy(i);
       else i++;
@@ -1726,13 +1887,14 @@ export class SimWorld {
     return 0;
   }
 
-  /** `CLevelRuntimeData::PlaceGameCrates` (normal, non-DM). */
-  placeGameCrates(): void {
-    for (const c of this.level.placedCratesNormal)
-      this.newCrate(c.x, c.y, c.type1 as CrateKind, c.type2);
+  /** `CLevelRuntimeData::PlaceGameCrates( aDMCrates )`. */
+  placeGameCrates(dmCrates: boolean): void {
+    const placed = dmCrates ? this.level.placedCratesDM : this.level.placedCratesNormal;
+    const random = dmCrates ? this.level.randomCratesDM : this.level.randomCratesNormal;
+    for (const c of placed) this.newCrate(c.x, c.y, c.type1 as CrateKind, c.type2);
     const w = this.level.width * KBlockSpriteSize;
     const h = this.level.height * KBlockSpriteSize;
-    for (const rc of this.level.randomCratesNormal)
+    for (const rc of random)
       for (let b = 0; b < rc.amount; b++) {
         let x = 0;
         let y = 0;
@@ -1744,10 +1906,10 @@ export class SimWorld {
       }
   }
 
-  /** `CDynGameData::SetupLevelStart`'s entity spawn (after player placement). */
+  /** `CDynGameData::SetupLevelStart`'s entity spawn (after start-point placement). */
   spawnEntities(): void {
-    this.initEnemies();
-    this.placeGameCrates();
+    if (this.enemiesEnabled) this.initEnemies();
+    this.placeGameCrates(this.dmCrates);
   }
 
   /** `CPlayer::PickupCrates`. */
@@ -1873,7 +2035,8 @@ export class SimWorld {
       }
 
     // 7. AnimatePlayers (local players)
-    for (const p of this.players) if (p.local) this.animate(p);
+    for (let i = 0; i < this.players.length; i++)
+      if (this.players[i].local) this.animate(i, this.players[i]);
 
     // 8. EnemyUpdate
     this.enemyUpdate();

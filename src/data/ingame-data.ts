@@ -133,19 +133,40 @@ export interface IngameData {
   palette: Palette;
   /** Indexed by `EGameSprite.*`. */
   sprites: IndexedImage[];
+  /** `CIngameData::iKillTexts` — `FragText[i]` (deathmatch kill messages). */
+  killTexts: string[];
+  /** `CIngameData::iSuicideTexts` — `SuicideText[i]`. */
+  suicideTexts: string[];
 }
 
 export type BytesLoader = (path: string) => Promise<Uint8Array>;
 
+/** Reads a `<prefix>[i]` list with its `<prefix>Amount` count (empty = skip). */
+function loadTextList(cfg: ConfigFile, amountKey: string, prefix: string): string[] {
+  const amount = Number.parseInt(cfg.get(amountKey) ?? "0", 10) || 0;
+  const out: string[] = [];
+  for (let a = 0; a < amount; a++) {
+    const text = cfg.getIndexed(prefix, a);
+    if (text && text.length > 0) out.push(text);
+  }
+  return out;
+}
+
 /**
- * Signature of the sprite-defining config values. `App` uses it to cache the
- * generated sheets: per-level `<level>.ini` / episode `default.ini` overrides
- * only trigger a reload when they actually change a source sprite path.
+ * Signature of the config values that define `IngameData`. `App` uses it to
+ * cache the generated sheets: per-level `<level>.ini` / episode `default.ini`
+ * overrides only trigger a reload when they actually change a source sprite
+ * path or a kill-text list.
  */
 export function ingameSignature(cfg: ConfigFile): string {
-  return SPRITE_SPECS.filter((spec) => spec.src === undefined)
+  const sprites = SPRITE_SPECS.filter((spec) => spec.src === undefined)
     .map((spec) => `${spec.key}=${cfg.get(spec.key) ?? ""}`)
     .join("\n");
+  const texts = [
+    ...loadTextList(cfg, "FragTextAmount", "FragText"),
+    ...loadTextList(cfg, "SuicideTextAmount", "SuicideText"),
+  ].join("\n");
+  return `${sprites}\n${texts}`;
 }
 
 /**
@@ -182,5 +203,10 @@ export async function loadIngameData(cfg: ConfigFile, load: BytesLoader): Promis
     sprites[spec.index] = rotateSprites(sprites[spec.index], KCharacterSpriteSize, spec.after);
   }
 
-  return { palette, sprites };
+  return {
+    palette,
+    sprites,
+    killTexts: loadTextList(cfg, "FragTextAmount", "FragText"),
+    suicideTexts: loadTextList(cfg, "SuicideTextAmount", "SuicideText"),
+  };
 }

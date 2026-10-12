@@ -399,7 +399,24 @@ still operates on seat 0. Both are noted in docs/13.
   the original.
 
 ✅ A deathmatch round shows frags, respawns players, applies the DM options and prints kill
-texts; the replay oracle gains a DM death/respawn scenario.
+texts.
+
+**Status:** in. `GameMode` moved to `src/app/game-mode.ts` and extended with
+`objectiveFulfilled` / `gameOver` / `setupPlayerEpisode` / `setupPlayerLevel`. `GameSession`
+now applies the DM setup (shield 30, energy `(100+shield·10)/3`, DM speed, target system),
+`placeGameCrates(DMCrates)`, `RandomPlacePlayers` and the `iEnemiesOnGame` enemy gate.
+`SimWorld` ports `CPlayer::RandomPlace` / `TotalReset` / `Reset` and
+`CGameModeDeathmatch::CharacterDied` (teleport effects, random respawn at 30 shield / 133
+energy), `BulletPlayerKill` kill/suicide messages (`FragText`/`SuicideText` loaded from the
+merged per-level config) and `TotalPlayerKills` suicide accounting. `ObjectiveFulfilled` /
+`GameOver` gate level completion and the statistics screen (`Game Over` vs `Completed !`,
+frags line, no time bonus). Verified in the browser: a 2-player DM scatters the players,
+places DM crates, toggles enemies, prints `John punished Paul.` / a suicide line, awards and
+subtracts frags and respawns on death.
+
+Caveat: DM is not in the parity oracle — `RandomPlace` and the kill texts consume the
+shared RNG, and the oracle models the cooperative path only — so DM is verified in the
+browser rather than byte-for-byte (docs/13).
 
 ## M13 — Netplay (WebRTC/WebSocket)
 
