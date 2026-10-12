@@ -19,6 +19,15 @@ import { ingameSignature, loadIngameData, type IngameData } from "../data/ingame
 import { loadLevel, type Level } from "../data/level";
 import { loadMenuData, PaletteNo, type MenuData } from "../data/menu-data";
 import { createPalette, type Palette } from "../data/palette";
+import { NetClient, type NetStatus } from "../net/client";
+import {
+  KROOM_CODE_LENGTH,
+  type MatchEndReason,
+  type NetSettings,
+  type RoomInfo,
+  type ServerMessage,
+} from "../net/protocol";
+import { packNetPlayerState, playerFromNetState } from "../net/state";
 import { toDrawSprites } from "../render/draw-manager";
 import { GameDrawer } from "../render/drawer";
 import { GraphicsFader, scalePalette } from "../render/fader";
@@ -152,6 +161,24 @@ export class App implements MenuHost {
   private userQuit = false;
   private gameOver = false;
 
+  /** Netplay: the live connection, or null when offline. */
+  private net: NetClient | null = null;
+  /** True between a successful host/join and an intentional leave. */
+  private netWasInRoom = false;
+  /** Set while we are deliberately closing the socket (not a drop). */
+  private netIntentional = false;
+  /** The current Game main-state is an online match. */
+  private online = false;
+  /** This client's seat in the online match. */
+  private onlineSeat = 0;
+  /** Server-provided level seed (online); null uses `Date.now()` (local). */
+  private sessionSeed: number | null = null;
+  private onlineLastLevel = false;
+  private onlineLevelEndSent = false;
+  private onlineReadySent = false;
+  private onlineStatsPrizeGiven = false;
+  private onlineShopShown = false;
+
   /** `CDynGameData::iLocalPlayer[0]` + `Statistics()` — persist across levels. */
   private player: SimPlayer | null = null;
   /** All local seats (`iLocalPlayer`), one per split-screen player. */
@@ -258,6 +285,7 @@ export class App implements MenuHost {
 
   private tick(): void {
     this.clock++;
+    this.pollNet();
     if (this.effect.enabled) this.runEffect();
     else this.runState();
     this.messageBoard.run(this.clock);
@@ -612,6 +640,8 @@ export class App implements MenuHost {
   ): void {
     this.gameMode = mode;
     this.episode = episode;
+    this.online = false;
+    this.sessionSeed = null;
     const epi = this.opts.episode(episode, mode.dmEpisodes());
     this.levelsInEpisode = epi.levels.length;
     if (this.levelsInEpisode <= 0 || startLevel >= this.levelsInEpisode) {
@@ -796,7 +826,8 @@ export class App implements MenuHost {
     if (!level || players.length === 0) return;
     const f = this.fontSet.get(GameFont.SmallFont);
     this.stats.recording = this.currentLevel;
-    const names = players.map((_, i) => this.opts.data.name[i] || "Unknown soldier");
+    const names = players.map((p) => p.name || "Unknown soldier");
+    const seed = this.sessionSeed ?? (Date.now() / 1000) >>> 0;
     this.session = new GameSession(
       level,
       toDrawSprites(this.ingame),
@@ -829,11 +860,12 @@ export class App implements MenuHost {
         dmSpeed: this.opts.data.dmSpeed,
         dmTargetSystem: this.opts.data.dmTargetSystem,
       },
-      (Date.now() / 1000) >>> 0,
+      seed,
       players,
       this.stats,
+      this.online ? this.onlineSeat : -1,
     );
-    this.session.setMouseOwner(this.opts.data.mouseMode - 1);
+    this.session.setMouseOwner(this.online ? this.onlineSeat : this.opts.data.mouseMode - 1);
     this.messageBoard.setDrawOffset(this.gameMode.frags() ? 16 : 0);
     this.resetKeyQueue();
     this.startGameMusic();
@@ -851,6 +883,10 @@ export class App implements MenuHost {
     const session = this.session;
     if (!session) return;
     session.currentFps = Math.trunc(this.fps);
+    if (this.online) {
+      this.runOngoingOnline(session);
+      return;
+    }
     session.step(this.gameInput());
     for (const message of session.world.messages) this.messageBoard.addMessage(message, this.clock);
     session.world.messages.length = 0;
@@ -869,11 +905,43 @@ export class App implements MenuHost {
     }
   }
 
+  /** Online ongoing: send our input, then step exactly one server bundle. */
+  private runOngoingOnline(session: GameSession): void {
+    this.net?.sendInput(this.onlineInput());
+    const inputs = this.net?.takeTick() ?? null;
+    if (!inputs) return; // lockstep wait: no bundle arrived this tick
+    session.step(inputs);
+    for (const message of session.world.messages) this.messageBoard.addMessage(message, this.clock);
+    session.world.messages.length = 0;
+    this.playSounds(session.world.sounds);
+    session.world.sounds.length = 0;
+
+    if (this.userQuit) {
+      this.onlineMatchEnd("quit");
+      return;
+    }
+    if (this.gameMode.frags() && this.reachedFragLimit()) {
+      this.onlineMatchEnd("fragLimit");
+      return;
+    }
+    if (this.gameMode.gameOver(session.allPlayersDead())) {
+      session.completeTime = session.timeLimit;
+      this.gameOver = true;
+      this.onlineMatchEnd("quit");
+      return;
+    }
+    if (session.nextLevel >= KLevelCompleteDelay) {
+      this.finishLevel();
+      this.onlineLevelComplete();
+    }
+  }
+
   private runShop(): void {
     const player = this.player;
     if (!player) return;
     if (this.first()) {
       this.shop.playerDone = false;
+      this.shop.player = this.online ? this.onlineSeat : 0;
       this.shop.resetSelection();
       this.shop.updatePrices(this.shopRng);
       this.resetKeyQueue();
@@ -889,7 +957,12 @@ export class App implements MenuHost {
     if (this.shop.playerDone) {
       this.shop.playerDone = false;
       this.shop.setSkipOnce();
-      this.startFadeOut(MainState.Game, GameState.OnGoing);
+      if (this.online) {
+        this.onlineSendReady();
+        this.startFadeOut(MainState.Game, GameState.Statistics);
+      } else {
+        this.startFadeOut(MainState.Game, GameState.OnGoing);
+      }
     }
   }
 
@@ -947,12 +1020,29 @@ export class App implements MenuHost {
   private runStatistics(): void {
     if (this.first()) {
       this.resetKeyQueue();
-      if (this.player) {
-        const level = this.levelFor(this.stats.latest);
+      const level = this.levelFor(this.stats.latest);
+      const timeLimit = level?.general.timeLimit ?? 0;
+      if (this.online) {
+        if (!this.onlineStatsPrizeGiven) {
+          for (let i = 0; i < this.players.length; i++) {
+            givePlayerPrize(
+              this.players[i],
+              i,
+              this.stats,
+              timeLimit,
+              this.completeTime,
+              this.gameOver,
+              this.userQuit,
+            );
+          }
+          this.onlineStatsPrizeGiven = true;
+        }
+      } else if (this.player) {
         this.timeBonus = givePlayerPrize(
           this.player,
+          0,
           this.stats,
-          level?.general.timeLimit ?? 0,
+          timeLimit,
           this.completeTime,
           this.gameOver,
           this.userQuit,
@@ -961,6 +1051,25 @@ export class App implements MenuHost {
       this.startFadeIn(this.menuData.palettes[PaletteNo.Shop]);
       this.startMenuMusic();
     }
+
+    if (this.online) {
+      if (this.onlineReadySent) return; // waiting for the server's ready barrier
+      if (!this.nextKey()) return;
+      if (this.gameOver || this.userQuit) {
+        this.gameOver = false;
+        this.userQuit = false;
+        this.onlineMatchEnd("quit");
+        return;
+      }
+      if (this.gameMode.shopEnabled(this.stats.latest) && !this.onlineShopShown) {
+        this.onlineShopShown = true;
+        this.startFadeOut(MainState.Game, GameState.Shop);
+        return;
+      }
+      this.onlineSendReady();
+      return;
+    }
+
     if (!this.nextKey()) return;
     if (this.gameOver || this.userQuit) {
       this.gameOver = false;
@@ -1070,12 +1179,14 @@ export class App implements MenuHost {
   }
 
   private drawStatisticsScreen(): void {
+    const index = this.online ? this.onlineSeat : 0;
     const ctx: StatisticsContext = {
       fb: this.fb,
       menuData: this.menuData,
       fonts: this.fontSet,
       stats: this.stats,
-      playerName: this.stats.player(0)?.name ?? "",
+      playerIndex: index,
+      playerName: this.stats.player(index)?.name ?? "",
       actionTimeMatters: this.gameMode.actionTimeMatters(),
       frags: this.gameMode.frags(),
       gameOver: this.gameOver,
@@ -1086,6 +1197,16 @@ export class App implements MenuHost {
       playerCash: this.player?.cash ?? 0,
     };
     drawStatistics(ctx);
+    if (this.online) {
+      this.writeText(
+        this.fontSet.get(GameFont.SmallFont),
+        Math.trunc(this.fb.width / 2),
+        this.fb.height - 6,
+        this.onlineReadySent ? "Ready - waiting for players..." : "Press a key to continue",
+        VAlign.Above,
+        HAlign.InMiddle,
+      );
+    }
   }
 
   private drawShopScreen(): void {
@@ -1220,6 +1341,249 @@ export class App implements MenuHost {
   }
 
   // ------------------------------------------------------------------
+  // netplay (`docs/multiplayer`)
+  // ------------------------------------------------------------------
+
+  /** Drain net events and detect an unexpected disconnect. Called each tick. */
+  private pollNet(): void {
+    const net = this.net;
+    if (!net) return;
+    for (const message of net.drain()) this.handleNetMessage(message);
+    if (this.net === net && net.status === "closed" && !this.netIntentional) {
+      this.handleNetClosed();
+    }
+  }
+
+  private handleNetMessage(message: ServerMessage): void {
+    switch (message.t) {
+      case "hosted":
+      case "joined":
+        this.netWasInRoom = true;
+        if (this.menuContainer.currentState() !== MenuState.Lobby) {
+          this.menuContainer.changeState(MenuState.Lobby);
+        }
+        break;
+      case "levelStart":
+        this.beginOnlineLevel(message);
+        break;
+      case "matchEnded":
+        this.messageBoard.addMessage(
+          message.reason === "victory" ? "Episode complete!" : "Match over.",
+          this.clock,
+        );
+        this.returnToLobby();
+        break;
+      case "peerLeft":
+        this.messageBoard.addMessage(`Player ${message.seat + 1} left.`, this.clock);
+        break;
+      case "hostChanged":
+        this.messageBoard.addMessage("Host changed.", this.clock);
+        break;
+      case "error":
+        this.messageBoard.addMessage(message.message, this.clock);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private handleNetClosed(): void {
+    const wasActive = this.netWasInRoom || this.online;
+    this.net = null;
+    this.netWasInRoom = false;
+    this.online = false;
+    this.session = null;
+    if (wasActive) this.messageBoard.addMessage("Connection lost.", this.clock);
+    if (this.mainState === MainState.Game) this.setState(MainState.Menu, 0);
+    if (wasActive || this.menuContainer.currentState() === MenuState.Lobby) {
+      this.menuContainer.changeState(MenuState.Online);
+    }
+  }
+
+  /** Build the online session from a `levelStart` and fade into it. */
+  private beginOnlineLevel(message: Extract<ServerMessage, { t: "levelStart" }>): void {
+    const net = this.net;
+    const settings = net?.room?.settings;
+    if (!net || !settings) return;
+    this.saveOptions();
+
+    this.online = true;
+    this.onlineSeat = net.seat;
+    this.gameMode = new GameMode(settings.gameMode !== 0);
+    this.episode = settings.episode;
+    const epi = this.opts.episode(this.episode, this.gameMode.dmEpisodes());
+    this.levelsInEpisode = epi.levels.length;
+    this.currentLevel = message.index;
+    this.onlineLastLevel = message.index >= this.levelsInEpisode - 1;
+    this.sessionSeed = message.seed;
+    this.shopRng = new GlibcRandom(message.shopSeed);
+    this.shop = new DynShopData();
+    this.onlineLevelEndSent = false;
+    this.onlineReadySent = false;
+    this.onlineStatsPrizeGiven = false;
+    this.onlineShopShown = false;
+    this.userQuit = false;
+    this.gameOver = false;
+
+    this.players = message.roster.map((entry, i) =>
+      playerFromNetState(message.states?.[i] ?? null, entry.name),
+    );
+    this.player = this.players[this.onlineSeat] ?? this.players[0];
+    this.stats = new GameStatistics();
+    for (let i = 0; i < this.players.length; i++) {
+      this.players[i].name = message.roster[i]?.name ?? this.players[i].name;
+      this.stats.addPlayer(this.players[i].name);
+      this.gameMode.setupPlayerEpisode(this.players[i]);
+    }
+    this.stats.recording = message.index;
+
+    this.levelBytes.clear();
+    this.levelData.clear();
+    const files = epi.levels.map((l) => l.file);
+    void Promise.all(
+      files.map(async (file, index) => {
+        this.levelBytes.set(index, await this.loadBytes(file));
+      }),
+    )
+      .then(() => this.ensureLevelIngame(this.episode, message.index))
+      .then(() => {
+        if (this.net !== net) return; // left or dropped while loading
+        this.menuContainer.enterState();
+        this.startFadeOut(MainState.Game, GameState.OnGoing);
+      });
+  }
+
+  /** This seat's input for one tick. */
+  private onlineInput(): SimInput {
+    let buttons = 0;
+    if (this.rawButtons & MouseButton.Left) buttons |= MouseButton.Left;
+    if (this.rawButtons & MouseButton.Right) buttons |= MouseButton.Right;
+    if (this.wheelTicks > 0) buttons |= MouseButton.WheelDown;
+    else if (this.wheelTicks < 0) buttons |= MouseButton.WheelUp;
+    return {
+      keys: seatKeyMask(this.heldCodes, this.opts.data.keys[0]),
+      mouseXRel: this.mouseDX,
+      mouseButtons: buttons,
+    };
+  }
+
+  /** The level's objective was met: tell the server and show statistics. */
+  private onlineLevelComplete(): void {
+    if (this.onlineLevelEndSent) return;
+    this.onlineLevelEndSent = true;
+    this.net?.sendLevelEnd(this.onlineLastLevel);
+    this.startFadeOut(MainState.Game, GameState.Statistics);
+  }
+
+  /** Declare this seat finished with statistics/shop for the ready barrier. */
+  private onlineSendReady(): void {
+    if (this.onlineReadySent || !this.net) return;
+    const player = this.players[this.onlineSeat];
+    if (!player) return;
+    const frags = this.stats.currentPlayerKills(this.onlineSeat);
+    this.net.sendReady(packNetPlayerState(player, frags));
+    this.onlineReadySent = true;
+  }
+
+  private reachedFragLimit(): boolean {
+    const limit = this.net?.room?.settings.fragLimit ?? 0;
+    if (limit <= 0) return false;
+    for (let i = 0; i < this.players.length; i++) {
+      if (this.stats.currentPlayerKills(i) >= limit) return true;
+    }
+    return false;
+  }
+
+  private onlineMatchEnd(reason: MatchEndReason): void {
+    this.net?.sendMatchEnd(reason);
+    this.returnToLobby();
+  }
+
+  /** Stop the match and show the room lobby (idempotent). */
+  private returnToLobby(): void {
+    this.online = false;
+    this.onlineReadySent = false;
+    if (
+      this.mainState !== MainState.Menu ||
+      this.menuContainer.currentState() !== MenuState.Lobby
+    ) {
+      this.setState(MainState.Menu, 0);
+      this.menuContainer.changeState(MenuState.Lobby);
+    }
+  }
+
+  private async openNet(): Promise<NetClient> {
+    if (this.net) {
+      this.netIntentional = true;
+      this.net.disconnect();
+    }
+    const net = new NetClient();
+    this.net = net;
+    this.netIntentional = false;
+    this.netWasInRoom = false;
+    await net.connect();
+    return net;
+  }
+
+  startHosting(): void {
+    this.saveOptions();
+    const data = this.opts.data;
+    const settings: NetSettings = {
+      gameMode: data.multiPlayGameMode !== 0 ? 1 : 0,
+      episode: data.multiPlayEpisode,
+      level: data.multiPlayGameMode !== 0 ? 0 : data.multiPlayLevel,
+      players: data.multiPlayers,
+      fragLimit: data.dmFragLimit,
+    };
+    const name = data.name[0] || "Player";
+    void this.openNet()
+      .then((net) => net.host(name, settings))
+      .catch(() => {
+        this.messageBoard.addMessage("Could not reach the netplay server.", this.clock);
+        this.leaveNet();
+        this.menuContainer.changeState(MenuState.Online);
+      });
+  }
+
+  joinGame(code: string): void {
+    const normalized = code.trim().toUpperCase();
+    if (normalized.length !== KROOM_CODE_LENGTH) {
+      this.messageBoard.addMessage("Enter a 5-letter room code.", this.clock);
+      return;
+    }
+    this.saveOptions();
+    const name = this.opts.data.name[0] || "Player";
+    void this.openNet()
+      .then((net) => net.join(name, normalized))
+      .catch(() => {
+        this.messageBoard.addMessage("Could not reach the netplay server.", this.clock);
+        this.leaveNet();
+        this.menuContainer.changeState(MenuState.Online);
+      });
+  }
+
+  leaveNet(): void {
+    this.netIntentional = true;
+    this.net?.leave();
+    this.net?.disconnect();
+    this.net = null;
+    this.netWasInRoom = false;
+    this.online = false;
+  }
+
+  netLobby(): RoomInfo | null {
+    return this.net?.room ?? null;
+  }
+
+  netStatus(): NetStatus {
+    return this.net?.status ?? "idle";
+  }
+
+  netSeat(): number {
+    return this.net?.seat ?? -1;
+  }
+
+  // ------------------------------------------------------------------
   // MenuHost
   // ------------------------------------------------------------------
 
@@ -1259,7 +1623,11 @@ export class App implements MenuHost {
       this.setState(MainState.Quit, 0);
       return;
     }
+    // Leaving the lobby (host/join screen, Esc) also leaves the room.
+    const leavingLobby =
+      this.menuContainer.currentState() === MenuState.Lobby && state !== MenuState.Lobby;
     this.menuContainer.changeState(state);
+    if (leavingLobby) this.leaveNet();
   }
   skipDrawOnce(): void {
     this.menuContainer?.skipDrawOnce();

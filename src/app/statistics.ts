@@ -17,6 +17,7 @@ import { GameFont, type SystemFonts } from "./fonts";
 /** `CGameSubStateStatistics::GivePlayerPrize` — returns `iTimeBonus`. */
 export function givePlayerPrize(
   player: SimPlayer,
+  playerIndex: number,
   stats: GameStatistics,
   timeLimit: number,
   completeTime: number,
@@ -27,7 +28,7 @@ export function givePlayerPrize(
   if (timeBonus < -500) timeBonus = -500;
   if (userQuit || gameOver) timeBonus = 0;
 
-  const s = stats.latestLevelStats(0);
+  const s = stats.latestLevelStats(playerIndex);
   for (let a = 0; a < EnemyTypes.length; a++) player.cash += EnemyTypes[a].reward * s.enemyKills[a];
   player.cash += timeBonus;
   if (player.cash < 0) player.cash = 0;
@@ -44,6 +45,8 @@ export interface StatisticsContext {
   readonly menuData: MenuData;
   readonly fonts: SystemFonts;
   readonly stats: GameStatistics;
+  /** Seat whose statistics are shown (0 in single-player / split-screen). */
+  readonly playerIndex: number;
   readonly playerName: string;
   readonly actionTimeMatters: boolean;
   readonly frags: boolean;
@@ -76,7 +79,7 @@ export function drawStatistics(ctx: StatisticsContext): void {
     big.scaleY,
   );
 
-  drawPlayerInfo(ctx, 0, 0, small);
+  drawPlayerInfo(ctx, 0, ctx.playerIndex, small);
 
   if (ctx.actionTimeMatters) {
     let text = `Time limit: ${formatTime(ctx.timeLimit)} Your time: ${formatTime(ctx.completeTime)}`;
@@ -157,7 +160,7 @@ function drawPlayerInfo(
     b += height;
   }
 
-  const plyKills = ctx.stats.totalPlayerKills(0);
+  const plyKills = ctx.stats.totalPlayerKills(ctx.playerIndex);
   if (plyKills && ctx.frags) {
     b += height;
     fontWrite(

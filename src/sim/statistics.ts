@@ -118,4 +118,16 @@ export class GameStatistics {
       total += victim === player ? -amount : amount;
     return total;
   }
+
+  /**
+   * Frags for the level currently being recorded (used for the online frag
+   * limit while a deathmatch is still running, before `latest` is set).
+   */
+  currentPlayerKills(player: number): number {
+    if (player < 0 || player >= this.players.length) return 0;
+    let total = 0;
+    for (const [victim, amount] of this.levelStats(player, this.recording).playerKills)
+      total += victim === player ? -amount : amount;
+    return total;
+  }
 }

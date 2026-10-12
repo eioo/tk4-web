@@ -73,6 +73,9 @@ export interface NetPlayerState {
   weapons: number[];
   bullets: number[];
   shield: number;
+  /** Equipped weapon / secondary (`CPlayer::iCurWeapon` / `iSecWeapon`). */
+  curWeapon: number;
+  secWeapon: number;
   frags: number;
 }
 
@@ -186,6 +189,8 @@ function isPlayerState(value: unknown): value is NetPlayerState {
     isNumberArray(value.weapons) &&
     isNumberArray(value.bullets) &&
     isFiniteNumber(value.shield) &&
+    isFiniteNumber(value.curWeapon) &&
+    isFiniteNumber(value.secWeapon) &&
     isFiniteNumber(value.frags)
   );
 }

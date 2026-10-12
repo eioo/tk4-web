@@ -65,7 +65,7 @@ describe("CGameSubStateStatistics::GivePlayerPrize", () => {
     stats.addEnemyKill(0, 4); // bazooka boy
     stats.latest = 0;
 
-    const bonus = givePlayerPrize(player, stats, 100, 90, false, false);
+    const bonus = givePlayerPrize(player, 0, stats, 100, 90, false, false);
     expect(bonus).toBe((100 - 90) * 5);
     expect(player.cash).toBe(EnemyTypes[0].reward + EnemyTypes[4].reward + 50);
   });
@@ -76,8 +76,8 @@ describe("CGameSubStateStatistics::GivePlayerPrize", () => {
     const stats = new GameStatistics();
     stats.addPlayer("John");
     stats.latest = 0;
-    expect(givePlayerPrize(player, stats, 100, 200, true, false)).toBe(0);
-    expect(givePlayerPrize(player, stats, 100, 200, false, true)).toBe(0);
+    expect(givePlayerPrize(player, 0, stats, 100, 200, true, false)).toBe(0);
+    expect(givePlayerPrize(player, 0, stats, 100, 200, false, true)).toBe(0);
   });
 
   test("the penalty is capped at -500 and cash never goes negative", () => {
@@ -86,7 +86,7 @@ describe("CGameSubStateStatistics::GivePlayerPrize", () => {
     const stats = new GameStatistics();
     stats.addPlayer("John");
     stats.latest = 0;
-    const bonus = givePlayerPrize(player, stats, 100, 100000, false, false);
+    const bonus = givePlayerPrize(player, 0, stats, 100, 100000, false, false);
     expect(bonus).toBe(-500);
     expect(player.cash).toBe(0);
   });

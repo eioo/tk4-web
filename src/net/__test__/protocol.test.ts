@@ -15,6 +15,8 @@ const state: NetPlayerState = {
   weapons: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   bullets: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   shield: 0,
+  curWeapon: 0,
+  secWeapon: 0,
   frags: 0,
 };
 

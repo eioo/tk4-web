@@ -6,6 +6,7 @@
  * same listing the original builds from `levs/` and `music/`).
  */
 
+import { KDEFAULT_FRAG_LIMIT, KFRAG_LIMIT_MAX, KFRAG_LIMIT_MIN } from "../net/protocol";
 import { SDLK } from "./keys";
 
 /** `KMaxLocalPlayers`. */
@@ -118,6 +119,8 @@ export class OptionsData {
   multiPlayEpisode = 1;
   dmSpeed = KPlayerRunSpeed;
   dmTargetSystem = false;
+  /** Online deathmatch frag limit (`docs/multiplayer`). */
+  dmFragLimit = KDEFAULT_FRAG_LIMIT;
 
   stereo = false;
   fullScreen = true;
@@ -158,6 +161,7 @@ export class OptionsData {
     this.multiPlayers = 2;
     this.musicTheme = DEFAULT_MUSICTHEME;
     this.dmTargetSystem = false;
+    this.dmFragLimit = KDEFAULT_FRAG_LIMIT;
     this.name = KDefaultName.slice();
 
     this.keys = [];
@@ -253,6 +257,10 @@ export class Options {
 
   /** Re-runs the DM episode/level sanity checks (after loading saved options). */
   validate(): void {
+    this.data.dmFragLimit = Math.min(
+      Math.max(Math.trunc(this.data.dmFragLimit), KFRAG_LIMIT_MIN),
+      KFRAG_LIMIT_MAX,
+    );
     this.sanityCheck();
   }
 }

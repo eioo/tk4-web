@@ -183,6 +183,16 @@ export class SimPlayer {
   }
 }
 
+/** The loadout a game starts with (`CGameSystem::Init` + `CDynGameData::SetupPlayers`). */
+export function makeStartPlayer(): SimPlayer {
+  const p = new SimPlayer();
+  p.weapons[WeaponId.Fist] = 1;
+  p.bullets[BulletId.Fist] = 1;
+  p.curWeapon = WeaponId.Fist;
+  p.cash = 500;
+  return p;
+}
+
 export class SimWorld {
   readonly level: Level;
   readonly rng: GlibcRandom;
@@ -195,6 +205,12 @@ export class SimWorld {
   crates: SimCrate[] = [];
   deadEnemies: Array<{ x: number; y: number }> = [];
   mouseOwner = -1;
+  /**
+   * Netplay extension: when set, every seat consumes its own mouse input
+   * instead of the single shared `mouseOwner`. Off for single-player and local
+   * split-screen (parity), on for online matches (docs/multiplayer/01).
+   */
+  perSeatMouse = false;
   mouseSensitivity = 0.5;
   mouseRightPressed = false;
   coopFrags = false;
@@ -1986,6 +2002,16 @@ export class SimWorld {
     c.textAngle = Math.trunc(getAngle(tx, ty, bx, by));
   }
 
+  /** `CPlayer` mouse rotation + wheel weapon switching (both mouse paths). */
+  private applyMouse(p: SimPlayer, mouse: SimInput): void {
+    let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
+    if (temp < -15) temp = -15;
+    if (temp > 15) temp = 15;
+    this.rotate(p, temp);
+    if (mouse.mouseButtons & MouseButton.WheelDown) this.changeWeapon(p, false);
+    if (mouse.mouseButtons & MouseButton.WheelUp) this.changeWeapon(p, true);
+  }
+
   /**
    * One 100 Hz tick — mirrors the inner loop of `CGameSubStateOngoing::RunFrame`.
    * `inputs[i]` is seat `i`'s keyboard (and, for `mouseOwner`, mouse) state.
@@ -1997,16 +2023,14 @@ export class SimWorld {
       if (p.local && !p.dead) this.playerCheckKeys(i, p, inputs[i] ?? EMPTY_INPUT);
     }
 
-    if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
-      const mouse = inputs[this.mouseOwner] ?? EMPTY_INPUT;
-      let temp = f32(f32(mouse.mouseXRel) * this.mouseSensitivity);
-      if (temp < -15) temp = -15;
-      if (temp > 15) temp = 15;
-      this.rotate(this.players[this.mouseOwner], temp);
-      if (mouse.mouseButtons & MouseButton.WheelDown)
-        this.changeWeapon(this.players[this.mouseOwner], false);
-      if (mouse.mouseButtons & MouseButton.WheelUp)
-        this.changeWeapon(this.players[this.mouseOwner], true);
+    if (this.perSeatMouse) {
+      for (let i = 0; i < this.players.length; i++) {
+        const p = this.players[i];
+        if (p.dead) continue;
+        this.applyMouse(p, inputs[i] ?? EMPTY_INPUT);
+      }
+    } else if (this.mouseOwner >= 0 && !this.players[this.mouseOwner].dead) {
+      this.applyMouse(this.players[this.mouseOwner], inputs[this.mouseOwner] ?? EMPTY_INPUT);
     }
 
     // 2. LevelRuntimeData::PerFrameCalc
