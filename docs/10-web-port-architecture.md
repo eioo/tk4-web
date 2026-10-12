@@ -199,6 +199,17 @@ Unit tests live in a `__test__/` directory next to the code they cover (e.g.
 progress is not saved in the original, so the port need not save it either (optional
 non-parity extra).
 
+## Boot & error handling
+
+Boot is asynchronous: `main.ts` fetches every asset the game needs (root config,
+`palette.tab`, menu/ingame data, fonts, `manifest.json`) before starting the loop. While
+that runs, `index.html` shows a full-screen overlay (`#boot`) with a progress bar and a
+running file count; `main.ts` removes it once the first frame is on the canvas. If boot
+throws — most often because `public/assets/` is missing (`bun run assets` not run) — the
+overlay switches to an error state showing the message and a reload button, and the
+message is mirrored to `window.tk4Error` for scripts. This replaces the original's silent
+black screen.
+
 ## Explicit non-goals / stubs
 
 - Playable network multiplayer (original is non-functional anyway). Drop it.

@@ -336,8 +336,14 @@ non-parity save.
 `vite build`) and serves `dist/` with `tools/serve.ts` (a `Bun.serve` static server:
 custom-extension MIME types, immutable caching for hashed bundles, `index.html` fallback,
 `--port`/`--host`); `bun run serve` hosts an existing build. Verified: the built site
-boots and plays from the server. Still open for M10: loading screen, error surfacing,
-README, optional gamepad, optional non-parity save.
+boots and plays from the server.
+
+Loading and error surfacing are in: `index.html` carries a boot overlay that `main.ts`
+dismisses once the first frame is ready, showing a live file count while assets load, and
+replaces it with the failure message (plus a reload button) if boot throws — so a slow
+connection or a missing `public/assets/` build no longer shows a blank canvas. The
+top-level `README.md` now documents the real commands and status. Still open for M10:
+optional gamepad and optional non-parity save (campaign progress).
 
 ---
 
