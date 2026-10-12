@@ -98,7 +98,9 @@ Single-player co-op campaign is playable end-to-end at verified parity (mileston
 scaffolding, asset pipeline, renderer, simulation, enemy AI, HUD/menus, shop/statistics,
 audio, and the parity harness). M10 (polish/deployment), M11 (local split-screen for up to
 four players on one keyboard + mouse) and M12 (deathmatch: frags, respawn, kill texts) are
-in. M13 (greenfield WebSocket netplay) is in progress: the protocol, pure room manager,
-Bun servers, online menus/lobby and the online match flow are implemented; polish and
-production deployment remain. See
+in. M13 (greenfield WebSocket netplay) is implemented: the protocol, pure room manager,
+Bun servers, online menus/lobby, the online match flow, and client-side prediction with
+rollback so local movement is instant (see
+[`docs/multiplayer/09-netcode-prediction.md`](docs/multiplayer/09-netcode-prediction.md));
+cross-machine play still wants a manual pass. See
 [`docs/12-implementation-plan.md`](docs/12-implementation-plan.md) for details.

@@ -47,7 +47,8 @@ Parity-style checks can't catch netplay feel. Manual pass:
 - two real machines on `tk4.space`: host code, join, coop level(s), shop,
   deathmatch frag limit, host migration, back to lobby;
 - eyeball that both players see the same enemies/crates/positions;
-- check input lag is acceptable (no prediction by design).
+- check the local player's movement and turning are instant (prediction);
+  remote players lag ~one RTT and correct smoothly (no rubber-banding).
 
 ## 2. Determinism hazards
 
@@ -103,9 +104,10 @@ anything on the wire. Not part of the protocol in v1.
 
 ## 4. Non-goals / explicitly deferred
 
-Client prediction, rollback, reconnect, spectators, chat, matchmaking, binary
-framing, server-side simulation, WebRTC. Each is a separate future milestone and
-should not leak into N1–N4 unless the plan is revised.
+Reconnect, spectators, chat, matchmaking, binary framing, server-side simulation,
+WebRTC. (Client prediction + rollback is no longer deferred — see docs 09 / N5.)
+Each is a separate future milestone and should not leak into the current work
+unless the plan is revised.
 
 ## 5. Gate list
 

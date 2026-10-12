@@ -7,9 +7,10 @@ reuses the existing `App` state machine and `SimWorld`.
 
 | File | Purpose |
 | --- | --- |
-| `src/net/client.ts` | `NetClient`: WebSocket wrapper, typed send/receive, connection status, event queues. |
+| `src/net/client.ts` | `NetClient`: WebSocket wrapper, typed send/receive, connection status, RTT probing, event queue. |
 | `src/net/protocol.ts` | Shared message types/constants (with the server). |
 | `src/net/state.ts` | `NetPlayerState` ⇄ `SimPlayer` conversion (persistent fields only). |
+| `src/net/lockstep.ts` | `LockstepClient`: prediction, keyframes, rollback reconciliation (docs 09). |
 
 `NetClient` has no DOM UI; `App` reads its state each tick and drives menu
 transitions.
@@ -34,7 +35,8 @@ While `playing`, once per local tick:
 keys        = seatKeyMask(heldCodes, opts.data.keys[0])   // the client IS player 1
 mouseXRel   = accumulated mouse movement this tick
 mouseButtons= left/right/wheel bits
-send s.input { keys, mouseXRel, mouseButtons }
+// stamp it with the tick it will be predicted for
+send s.input { tick: nextTick, keys, mouseXRel, mouseButtons }
 ```
 
 Reuse `App.gameInput`'s existing helpers: the online client is a single seat, so
@@ -46,32 +48,23 @@ it uses `options.data.keys[0]` and its own mouse, exactly like single-player.
 > `perSeatMouse` applies each seat's own vector (see 01 §4.1). The client still
 > only ever fills its own seat's vector; the server fills the rest.
 
-## 4. Bundle buffer and lockstep stepping
+## 4. Prediction and rollback
 
-`NetClient` queues received `c.tick` bundles. In `App.tick()` while online and
-`gameState === OnGoing`:
+The client predicts ahead and rolls back on authoritative bundles — see
+[docs 09](09-netcode-prediction.md) for the full model. In `App.tick()` while
+online and `gameState === OnGoing`:
 
 ```
-net.sendInput(myInput)                  // sample + send each app tick
-let steps = 0
-while (steps < KMaxOnlineCatchUp && (bundle = net.takeTick())) {
-    session.step(bundle.inputs)         // apply bundles in order
-    steps++
-}
-if (steps === 0) return                 // lockstep wait: nothing arrived yet
+lead  = clamp(ceil(net.rttMs / 10) + 2, 1, 40)   // net probes RTT via ping/pong
+lockstep.setLead(lead)
+lockstep.update(myInput)   // predict toward newestServer + lead, onPredict -> send s.input
 ```
 
-- Non-sim per-frame work (message board age, fades, FPS) still runs; only the sim
-  step is gated.
-- Applying several bundles per app tick lets a briefly-stalled client (a slow
-  frame, the `core/loop.ts` catch-up cap, a tab hiccup) drain the backlog while
-  preserving the exact `(tick, inputs)` sequence, so worlds stay identical; a
-  cap (`KMaxOnlineCatchUp = 5`) bounds the work per frame.
-- A deep buffer (64 bundles) absorbs jitter; when it is empty the client stalls
-  (renders the last frame) rather than invent input.
-- Because the server broadcasts every bundle to every client, the *sequence* a
-  client steps is the same everywhere, so worlds stay identical regardless of
-  local timing.
+On `c.tick` (from `net.drain()`), `lockstep.receive(tick, inputs)` records the
+authoritative vector. `update` then rewinds to a keyframe and replays if the
+prediction was wrong, discarding the replay's sounds/messages. Our own movement
+reflects the sampled input immediately; remote seats are held at their last
+authoritative input and corrected on arrival.
 
 ## 5. Starting a level
 

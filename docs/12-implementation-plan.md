@@ -420,20 +420,21 @@ browser rather than byte-for-byte (docs/13).
 
 ## M13 — Netplay (WebSocket)
 
-> **Designed in [`docs/multiplayer/`](multiplayer/README.md).** The locked design is
-> deterministic lockstep over Bun WebSockets: every client runs the full `SimWorld`
-> from server-broadcast input bundles, with the server as lobby + tick master (no
-> simulation). It covers host/join by 5-letter code, coop full-episode progression
-> (statistics + per-player shop), online deathmatch with a host-configurable frag
-> limit, idle seats and host migration. Milestones N1–N4 live in
+> **Designed in [`docs/multiplayer/`](multiplayer/README.md).** A deterministic shared
+> `SimWorld` over Bun WebSockets: every client runs the full sim from tick-stamped
+> input bundles, with the server as lobby + tick master + input relay (no simulation),
+> and **client-side prediction + rollback** so local movement is instant
+> ([09](multiplayer/09-netcode-prediction.md)). It covers host/join by 5-letter code,
+> coop full-episode progression (statistics + per-player shop), online deathmatch with
+> a host-configurable frag limit, idle seats and host migration. Milestones live in
 > [07-implementation-plan.md](multiplayer/07-implementation-plan.md).
 
-**Status:** N1–N3 implemented on `online-multiplayer` — the shared protocol and pure
+**Status:** N1–N5 implemented on `online-multiplayer` — the shared protocol and pure
 room manager, the Bun WebSocket servers (`bun run net` for dev, `/ws` on
-`tools/serve.ts`), the multiplayer-mode/host/join/lobby menus, and the online match
-(deterministic lockstep stepping, per-seat mouse, single-view rendering, episode
-progression with the ready barrier, online deathmatch frag limit, idle seats and host
-migration). N4 (polish, docs, production WS verification) is in progress.
+`tools/serve.ts`), the multiplayer-mode/host/join/lobby menus, the online match
+(per-seat mouse, single-view rendering, episode progression with the ready barrier,
+online deathmatch frag limit, idle seats and host migration), and prediction +
+rollback (protocol v2).
 
 🎯 Greenfield peer sync built on the split-screen model. The original's network layer is
 compiled-out dead code with empty `Send`/`Available` (docs/13), so there is no wire format

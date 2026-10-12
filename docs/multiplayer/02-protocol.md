@@ -2,15 +2,18 @@
 
 JSON over one WebSocket per client. Every message is an object with a
 discriminant field `t`. Binary framing is a possible later optimisation; at
-100 Hz with ≤4 seats the JSON bundles are well under 1 KB/s down, so v1 stays
+100 Hz with ≤4 seats the JSON bundles are well under 1 KB/s down, so v2 stays
 readable.
+
+Clients predict ahead and roll back (docs 09), so inputs are **tick-stamped**
+and the server echoes a `pong` for round-trip estimation.
 
 `s` = client→server, `c` = server→client.
 
 ## 0. Constants
 
 ```
-PROTOCOL_VERSION = 1        // bumped on any breaking message change
+PROTOCOL_VERSION = 2        // bumped on any breaking message change
 KROOM_CODE_LENGTH = 5       // A–Z
 KMIN_PLAYERS = 2
 KMAX_PLAYERS = 4
@@ -21,6 +24,7 @@ KFRAG_LIMIT_MAX = 50
 KTICK_MS = 10               // 100 Hz tick master
 KROOM_EMPTY_GRACE_MS = 30000
 KMAX_MESSAGE_BYTES = 4096   // larger frames close the socket
+KMAX_INPUT_LOOKAHEAD = 120  // ignore inputs stamped further ahead than this
 ```
 
 ## 1. Shared types
@@ -74,13 +78,13 @@ Not a separate message: version is attached to the first `host`/`join`.
 
 ### `s.host`
 ```json
-{ "t": "host", "v": 1, "name": "John", "settings": { ... } }
+{ "t": "host", "v": 2, "name": "John", "settings": { ... } }
 ```
 Creates a room; sender takes seat 0 as host. Reply: `c.hosted` or `c.error`.
 
 ### `s.join`
 ```json
-{ "t": "join", "v": 1, "name": "Paul", "code": "KQZAB" }
+{ "t": "join", "v": 2, "name": "Paul", "code": "KQZAB" }
 ```
 Joins an existing lobby (code case-insensitive). Reply: `c.joined` or `c.error`
 (`no-room`, `in-progress`, `bad-version`). Because the room auto-starts the
@@ -88,11 +92,20 @@ moment the roster is full, `room-full` is only a defensive error.
 
 ### `s.input`
 ```json
-{ "t": "input", "keys": 8, "mouseXRel": 3, "mouseButtons": 0 }
+{ "t": "input", "tick": 137, "keys": 8, "mouseXRel": 3, "mouseButtons": 0 }
 ```
-Sent every local tick while `phase === "playing"`. The server keeps only the
-latest per seat (it samples; it does not queue). No `tick` field: clients do not
-predict ticks.
+One seat's predicted input for tick `tick` (docs 09). The server emits tick *T*
+with the input stamped *T*, using a zero input if none arrived; inputs for
+already-emitted ticks or more than `KMAX_INPUT_LOOKAHEAD` ahead are dropped.
+Because clients predict ahead by ~one RTT, an input normally arrives before the
+server reaches its tick.
+
+### `s.ping`
+```json
+{ "t": "ping", "id": 3 }
+```
+Round-trip probe. The server answers `c.pong` with the same `id` even outside a
+room; the client smooths the RTT to size the prediction lead.
 
 ### `s.loaded`
 ```json
@@ -196,8 +209,16 @@ and input routing.
 ```json
 { "t": "tick", "tick": 42, "inputs": [ {"keys":0,"mouseXRel":0,"mouseButtons":0}, ... ] }
 ```
-One entry per seat, in seat order. Idle/disconnected seats get a zero input. The
-server emits these at 100 Hz while `playing`.
+One entry per seat, in seat order, for the stamped tick. Idle/disconnected seats
+and seats whose input has not arrived get a zero input. Emitted at 100 Hz while
+`playing`. Clients buffer these and reconcile their prediction against them
+(docs 09).
+
+### `c.pong`
+```json
+{ "t": "pong", "id": 3 }
+```
+Reply to `s.ping`; the client uses it to size the prediction lead.
 
 ### `c.peerLeft`
 ```json

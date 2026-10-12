@@ -144,10 +144,15 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
 - **Netplay determinism (M13).** Online every client must run identical worlds: the server
   supplies the level `seed` and `shopSeed`, every seat is assigned the same full-screen
   `drawRect`, and the netplay-only `SimWorld.perSeatMouse` feeds each seat its own mouse
-  (local play keeps the single `mouseOwner` path unchanged). `Date.now()` seeding is
-  bypassed online. `renderRng` stays cosmetic. Guarded by `src/sim/__test__/world.test.ts`
-  (two worlds, identical bundles ⇒ identical trace); full two-client verification is
-  browser-based.
+  (local play keeps the single `mouseOwner` path unchanged; aim/shoot must not depend on
+  the local `mouseOwner`). `Date.now()` seeding is bypassed online. `renderRng` stays
+  cosmetic. Prediction + rollback ([09](multiplayer/09-netcode-prediction.md)) let each
+  client run ahead, then rewind to a keyframe and replay when authoritative input arrives;
+  snapshots cover the world, session counters **and** `GameStatistics` (the sim writes to
+  it every tick). Guarded by `src/sim/__test__/world.test.ts` (per-seat mouse, two
+  "clients" with different mouse owners ⇒ identical trace) and
+  `src/net/__test__/rollback-sim.test.ts` (two latent clients ⇒ identical to a reference);
+  full two-client verification is browser-based.
 - **Deathmatch is browser-verified, not oracle-verified.** The parity oracle models the
   cooperative path; it does not model `CPlayer::RandomPlace`, the `FragText`/`SuicideText`
   `rand()` draw on a player kill, or the DM respawn, all of which consume the shared RNG.

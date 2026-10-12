@@ -121,9 +121,11 @@ deliberate, non-parity extension.
 In scope: online lobby, host/join by code, coop full-episode progression, online
 deathmatch with a frag limit, host migration, idle seats.
 
+Prediction + rollback (docs 09) sits on top of this determinism so the local
+seat reacts without a round trip; the wire still carries inputs only.
+
 Out of scope for v1 (documented so we don't creep):
 - WebRTC / P2P (WebSocket relay only).
-- Client-side prediction / rollback.
 - Reconnection to an in-progress match (a leaver is idle; host migration only).
 - Matchmaking, accounts, persistence beyond the room lifetime.
 - Text chat (the original's Return-key network chat) — candidate for later.

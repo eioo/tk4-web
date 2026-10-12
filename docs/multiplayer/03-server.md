@@ -74,29 +74,24 @@ While `phase === "playing"` the room runs an interval of **10 ms** (100 Hz):
 
 ```
 for each slot in seat order:
-    if connected and tickBuffer[seat] exists:
-        inputs.push(tickBuffer[seat])   // latest sampled input
-        tickBuffer[seat] = null
-    else:
-        inputs.push(ZERO_INPUT)         // idle / not yet sent this window
+    input = tickBuffer[seat][tick]        // stamped for this tick, if arrived
+    inputs.push(input ?? ZERO_INPUT)      // idle / late / disconnected
 broadcast tick{ tick, inputs }
 tick++
 ```
 
-- The server does **not** wait for all inputs; it samples the latest per seat at
-  each boundary. This bounds latency and never stalls, and it stays deterministic
-  because every client applies the identical vector.
-- A connected seat that hasn't sent since the last tick contributes
-  `ZERO_INPUT` (its own client normally sends at the same 100 Hz).
-- `tick` starts at 0 for each `levelStart` and increments monotonically; it is
-  only used for logging/debug in v1 (clients step on receipt, they don't index by
-  it).
+- Clients predict ahead (docs 09) and stamp each `s.input` with the tick it
+  applies to, so an input normally arrives before its tick. The server never
+  waits: a seat with no stamped input for this tick contributes `ZERO_INPUT`.
+- Inputs for already-emitted ticks or more than `KMAX_INPUT_LOOKAHEAD` ahead are
+  dropped; stale entries are pruned periodically.
+- `tick` starts at 0 for each `levelStart` and increments monotonically. It is
+  the shared timeline: clients index their prediction and rollback by it.
 - The tick loop is cleared on `levelEnd`, `matchEnd`, host migration is a no-op
   for the loop, and on room close.
 
-Interval drift is fine: clients step one bundle per bundle, so a slow/fast server
-interval just changes how often clients step; the *sequence* of input vectors is
-what matters, and it is identical everywhere.
+Interval drift is fine: every client applies the same *sequence* of input
+vectors, and rollback corrects any local timing difference.
 
 ## 4. Phases and barriers
 

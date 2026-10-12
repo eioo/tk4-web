@@ -5,20 +5,19 @@ over **Bun WebSockets**. This directory is the design + implementation plan.
 Nothing here changes the parity goal of the port: single-player, split-screen and
 the reference oracles are untouched. Netplay is explicitly **non-parity**.
 
-> Status: **N1–N3 implemented** on branch `online-multiplayer` (protocol + room
+> Status: **N1–N4 implemented** on branch `online-multiplayer` (protocol + room
 > manager + Bun WS servers; client transport and the multiplayer/host/join/lobby
-> menus; the online match: lockstep stepping, per-seat mouse, single-view
-> rendering, episode progression, DM frag limit, host migration). **N4**
-> (polish, docs, production WS verification) is in progress. See
-> [07-implementation-plan.md](07-implementation-plan.md).
+> menus; the online match with prediction + rollback, per-seat mouse,
+> single-view rendering, episode progression, DM frag limit, host migration).
+> See [07-implementation-plan.md](07-implementation-plan.md).
 
-## Decisions (locked)
+## Decisions
 
 | Topic | Decision |
 | --- | --- |
-| Transport | Bun WebSockets (`Bun.serve`), JSON messages for v1 |
-| Netcode | Deterministic lockstep; server is lobby + tick master + input sampler, **no simulation** |
-| Latency | No prediction, no input-delay buffer (≈1 RTT) |
+| Transport | Bun WebSockets (`Bun.serve`), JSON messages (protocol v2) |
+| Netcode | Deterministic shared world; server is lobby + tick master + input relay, **no simulation** |
+| Latency | Client-side prediction + rollback: instant local movement, remote seats ~1 RTT behind (docs 09) |
 | Controls | Per-seat mouse: each client's mouse drives only its own player |
 | Match scope | Full episode progression (coop); statistics and shop online |
 | Between levels | All players "ready" barrier |
@@ -35,11 +34,12 @@ the reference oracles are untouched. Netplay is explicitly **non-parity**.
 1. [01-architecture.md](01-architecture.md) — lockstep model, authority split, determinism requirements
 2. [02-protocol.md](02-protocol.md) — every client/server message and its sequencing
 3. [03-server.md](03-server.md) — Bun WS server, rooms, codes, tick master, host migration
-4. [04-client.md](04-client.md) — transport, input sampling, bundle buffer, lockstep stepping
+4. [04-client.md](04-client.md) — transport, input sampling, prediction + rollback
 5. [05-game-flow.md](05-game-flow.md) — phase machine from lobby through progression
 6. [06-ui-menus.md](06-ui-menus.md) — new screens, menu states, items, lobby UI
 7. [07-implementation-plan.md](07-implementation-plan.md) — milestones N1–N4 with acceptance criteria
 8. [08-testing-and-risks.md](08-testing-and-risks.md) — tests, determinism checks, hazards
+9. [09-netcode-prediction.md](09-netcode-prediction.md) — prediction, tick numbering, rollback, snapshots
 
 ## Glossary
 

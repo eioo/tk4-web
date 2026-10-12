@@ -15,13 +15,16 @@ Legend: 🎯 deliverable · ✅ acceptance · ⚠️ risk.
 - ✅ **N3** — online game: per-seat mouse, single-view session, `levelStart`
   start, lockstep stepping, statistics/shop ready barrier, match endings,
   disconnect/host migration.
-- ⬜ **N4** — polish, docs, deployment (*in progress*).
+- ✅ **N4** — polish, docs, deployment.
+- ✅ **N5** — client-side prediction + rollback (docs 09, `e1cc77a`); protocol
+  v2 (tick-stamped inputs, ping/pong).
 
 Implementation notes vs. the design docs: `levelStart` no longer carries `last`
 (clients derive it from the episode length); `states` may be `null` or contain
 per-seat `null` entries; `NetPlayerState` gained `curWeapon`/`secWeapon`; the
 lobby re-indexes seats on a leave and resyncs peers with `c.seat`; malformed
-messages are dropped rather than closing the socket.
+messages are dropped rather than closing the socket. N5 supersedes the
+"no prediction" stance of docs 01/04 — see **09**.
 
 ---
 
