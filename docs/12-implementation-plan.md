@@ -428,6 +428,13 @@ browser rather than byte-for-byte (docs/13).
 > limit, idle seats and host migration. Milestones N1–N4 live in
 > [07-implementation-plan.md](multiplayer/07-implementation-plan.md).
 
+**Status:** N1–N3 implemented on `online-multiplayer` — the shared protocol and pure
+room manager, the Bun WebSocket servers (`bun run net` for dev, `/ws` on
+`tools/serve.ts`), the multiplayer-mode/host/join/lobby menus, and the online match
+(deterministic lockstep stepping, per-seat mouse, single-view rendering, episode
+progression with the ready barrier, online deathmatch frag limit, idle seats and host
+migration). N4 (polish, docs, production WS verification) is in progress.
+
 🎯 Greenfield peer sync built on the split-screen model. The original's network layer is
 compiled-out dead code with empty `Send`/`Available` (docs/13), so there is no wire format
 worth emulating; only its ownership split is a useful hint (server owns level, enemies,

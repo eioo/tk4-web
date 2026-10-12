@@ -141,3 +141,26 @@ like the other numerics.
 - `src/app/app.ts` — net polling, `startOnlineGame`, transitions, host methods.
 - `src/app/options.ts`, `src/app/options-storage.ts` — `dmFragLimit`.
 - `src/globals.d.ts` — `window.tk4Net` dev hook.
+- `src/app/menu.ts` — `LabelItem` (lobby lines), `NetCodeItem`,
+  `StartHostingItem`, `StartJoinItem`, `FragLimitItem`.
+
+## 9. Implementation notes (deltas from the design above)
+
+- **Item reuse**: the player count reuses the existing `SplitSelectItem`
+  (`OptionsData.multiPlayers`); the code field is `NetCodeItem` and the join
+  button is `StartJoinItem`. The earlier names `PlayerCountItem`/`JoinCodeItem`/
+  `JoinGameItem` were not needed.
+- **`FragLimitItem` is always selectable**, not DM-only (dynamic enable/disable
+  fights the tree's active selection); it is simply ignored by cooperative rooms.
+- **`MenuHost` signatures** ended up as `startHosting(): void`,
+  `joinGame(code: string): void` (the name comes from `options.data.name[0]`
+  inside `App`), `netLobby(): RoomInfo | null`, `netStatus(): NetStatus` and
+  `netSeat(): number`.
+- **`LobbyMenu` keeps a fixed item list** (title, code, four roster rows, status,
+  exit) and refreshes each label's text in `draw()`; it does not rebuild items.
+  `mySeat` (for the self marker) comes from `netSeat()`.
+- **Leaving the lobby** is centralised in `App.changeState`: transitioning from
+  `MenuState.Lobby` to anything else calls `leaveNet()`, so the `ExitItem`/
+  Escape paths both leave the room.
+- **`c.error`** is shown on the message board but does not force a state change
+  (the user retries); an unexpected socket close returns to `Online`.

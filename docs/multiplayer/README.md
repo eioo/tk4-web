@@ -5,8 +5,12 @@ over **Bun WebSockets**. This directory is the design + implementation plan.
 Nothing here changes the parity goal of the port: single-player, split-screen and
 the reference oracles are untouched. Netplay is explicitly **non-parity**.
 
-> Status: **planned** — no code yet. This doc set is the contract to review
-> before implementation starts.
+> Status: **N1–N3 implemented** on branch `online-multiplayer` (protocol + room
+> manager + Bun WS servers; client transport and the multiplayer/host/join/lobby
+> menus; the online match: lockstep stepping, per-seat mouse, single-view
+> rendering, episode progression, DM frag limit, host migration). **N4**
+> (polish, docs, production WS verification) is in progress. See
+> [07-implementation-plan.md](07-implementation-plan.md).
 
 ## Decisions (locked)
 

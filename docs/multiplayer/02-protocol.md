@@ -14,9 +14,13 @@ PROTOCOL_VERSION = 1        // bumped on any breaking message change
 KROOM_CODE_LENGTH = 5       // A–Z
 KMIN_PLAYERS = 2
 KMAX_PLAYERS = 4
+KMAX_NAME_LENGTH = 15
 KDEFAULT_FRAG_LIMIT = 20
 KFRAG_LIMIT_MIN = 5
 KFRAG_LIMIT_MAX = 50
+KTICK_MS = 10               // 100 Hz tick master
+KROOM_EMPTY_GRACE_MS = 30000
+KMAX_MESSAGE_BYTES = 4096   // larger frames close the socket
 ```
 
 ## 1. Shared types
@@ -54,6 +58,8 @@ interface NetPlayerState {
   weapons: number[]; // len 13
   bullets: number[]; // len 12
   shield: number;
+  curWeapon: number; // equipped weapon index
+  secWeapon: number; // secondary (dual single-hand) weapon index
   frags: number;     // deathmatch score / coop kill tally
 }
 ```
@@ -74,7 +80,8 @@ Creates a room; sender takes seat 0 as host. Reply: `c.hosted` or `c.error`.
 { "t": "join", "v": 1, "name": "Paul", "code": "KQZAB" }
 ```
 Joins an existing lobby (code case-insensitive). Reply: `c.joined` or `c.error`
-(`no-room`, `room-full`, `in-progress`, `bad-version`).
+(`no-room`, `in-progress`, `bad-version`). Because the room auto-starts the
+moment the roster is full, `room-full` is only a defensive error.
 
 ### `s.input`
 ```json
@@ -102,7 +109,7 @@ the first per match and ignores the rest.
 
 ### `s.ready`
 ```json
-{ "t": "ready", "state": { "name": "...", "cash": 1200, "weapons": [], "bullets": [], "shield": 0, "frags": 3 } }
+{ "t": "ready", "state": { "name": "...", "cash": 1200, "weapons": [], "bullets": [], "shield": 0, "curWeapon": 0, "secWeapon": 0, "frags": 3 } }
 ```
 Sent once per level by each client when it has finished statistics and (if any)
 its shop. The `state` is this seat's final persistent state; the server
@@ -142,15 +149,27 @@ changed settings, or a host migration happened. Clients re-render the lobby.
   "index": 0,
   "seed": 123456789,
   "shopSeed": 987654321,
-  "last": false,
-  "states": [ { ...NetPlayerState... }, ... ],
+  "states": null,
   "roster": [ { "seat": 0, "name": "John" }, { "seat": 1, "name": "Paul" } ]
 }
 ```
-`states` is in seat order and is the authority for the level's starting players
-(coop episode start or the consolidated post-shop state). `last` tells clients
-whether this is the episode's final level (coop). Server enters `playing` and
-starts the tick loop.
+`states` is in seat order and is the authority for the level's starting players.
+`null` (the whole array) means the episode's first level — clients use the fresh
+start loadout. Otherwise each entry is a seat's consolidated post-shop state; a
+`null` entry means the server has no known state for that seat (e.g. it left
+before its first `ready`), and the client substitutes a fresh loadout for it.
+
+Whether this is the episode's final level is derived by the client from the
+episode length (`index >= levelCount - 1`); the server carries no level data.
+Server enters `playing` and starts the tick loop.
+
+### `c.seat`
+```json
+{ "t": "seat", "seat": 1 }
+```
+The client's seat changed (only possible while in the lobby, when another peer
+leaves and the roster re-indexes). Clients update `mySeat` for host/self badges
+and input routing.
 
 ### `c.tick`
 ```json
@@ -205,7 +224,7 @@ client A (host)        server                 client B
    │ s.ready{state} ────►│ ◄─── s.ready{state} ───│
    │ ◄── c.levelStart ───┤───── c.levelStart ────►│   (index+1, states[])
    │        …            │            …           │
-   │  [final level done → ready with last:true]   │
+   │  [final level done → levelEnd{last:true} → ready] │
    │ ◄── c.matchEnded ───┤──── c.matchEnded ─────►│  (reason: victory)
    │  [back to lobby]                             │
 ```
@@ -229,8 +248,9 @@ server after a short grace period.
 - The server rejects `v !== PROTOCOL_VERSION` with
   `error{code:"bad-version"}`; the client shows "server/client version mismatch"
   and returns to the online menu.
-- Unknown `t` values are ignored server-side (forward compatibility).
-- Malformed JSON closes the socket (no partial state kept).
+- Unknown `t` values are ignored.
+- Unparseable JSON and messages failing validation are dropped (no partial
+  state kept) without closing the socket; oversized frames close it.
 
 ## 7. Bandwidth notes
 

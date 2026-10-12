@@ -81,10 +81,13 @@ map to menu screens (`LOBBY`) and the existing `MainState.Game` sub-states
   with their last known state.
 - All seats ready ⇒ server broadcasts the next `c.levelStart`:
   - `states[seat]` = the `ready` payload for each seat (the authoritative
-    cross-level state);
+    cross-level state); a seat the server never saw ready (it left early) is
+    `null` and the client substitutes a fresh loadout;
   - fresh `seed` and `shopSeed`;
-  - `index+1`, `last` recomputed.
-- If `last` was set, the server instead sends `c.matchEnded{reason:"victory"}`.
+  - `index+1`. Whether it is the last level is derived by each client from the
+    episode length, not carried on the message.
+- If the last `s.levelEnd` had `last:true`, the server instead sends
+  `c.matchEnded{reason:"victory"}`.
 
 ## 4. Playing (deathmatch)
 

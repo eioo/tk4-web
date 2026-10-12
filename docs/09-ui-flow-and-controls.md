@@ -15,12 +15,37 @@ activates, Esc backs out. Values that are "lists" cycle with Left/Right.
 ```
 main menu
   single game            -> episode select
-  start multiplayer game -> multiplay dialog
+  start multiplayer game -> multiplayer mode dialog (port addition)
   options                -> options menu
   exit                   -> quit confirm
 ```
 
-A `join multiplayer game` item exists but is commented out and non-functional.
+A `join multiplayer game` item exists in the original but is commented out and
+non-functional.
+
+### Multiplayer (port addition)
+
+The port adds online play behind a new mode dialog (the original goes straight to the
+split-screen multiplay dialog):
+
+```
+multiplayer
+  online multiplayer      -> online menu
+  split-screen multiplayer-> multiplay dialog
+  previous menu
+```
+
+- **Online menu**: `host game` → host setup; `join game` → join screen.
+- **Host setup**: Game mode, Episode, Level, Players (2–4), "Frag limit (deathmatch)"
+  (5–50, step 5) and "start hosting". The room is created on confirm; the screen
+  changes to the lobby when the server replies.
+- **Join**: a 5-letter room code (A–Z, case-insensitive) then `join`.
+- **Lobby**: the join code, the live roster (host/self marked) and
+  `waiting for players N/M…`. The match auto-starts once the roster is full;
+  `leave lobby`/Escape leaves the room.
+
+Online player names come from Options → Player 1 (`options.data.name[0]`). See
+[`docs/multiplayer/06-ui-menus.md`](multiplayer/06-ui-menus.md).
 
 ### Options menu
 

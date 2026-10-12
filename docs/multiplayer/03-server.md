@@ -35,7 +35,8 @@ join(code, peer, name)
   → auto-start when connected players == settings.players
 
 leave/disconnect(peer)
-  → lobby: remove slot, close room if empty
+  → lobby: remove slot, compact seats (re-index), send c.seat to shifted peers,
+           broadcast lobby, close room after the grace period if empty
   → playing/intermission: keep slot as idle (connected=false)
       · if it was the host → promote lowest connected seat, broadcast hostChanged
       · broadcast peerLeft
@@ -55,9 +56,11 @@ destroy
 
 ### 2.2 Seat order
 
-Seats are assigned in join order and are stable for the room's life. Seat 0 is
-the initial host. `RoomInfo.players` is always dense and seat-ordered; a
-disconnected seat stays in the array with `connected:false` (idle).
+Seats are assigned in join order and are stable while a match is running. Seat 0
+is the initial host. `RoomInfo.players` is always dense and seat-ordered; a
+disconnected seat stays in the array with `connected:false` (idle). In the
+**lobby**, a leaver is removed and the remaining seats are re-indexed to stay
+dense, with each shifted peer notified by `c.seat`.
 
 ## 3. Tick master
 

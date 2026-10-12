@@ -1876,6 +1876,30 @@ export class App implements MenuHost {
       };
     };
     window.tk4Start = (episode = 0) => this.execSingleGame(episode);
+    window.tk4Net = (action, arg) => {
+      switch (action) {
+        case "host":
+          this.startHosting();
+          return "hosting";
+        case "join":
+          if (arg) this.joinGame(arg);
+          return "joining";
+        case "leave":
+          this.leaveNet();
+          return "left";
+        case "state":
+          return {
+            status: this.netStatus(),
+            seat: this.netSeat(),
+            online: this.online,
+            room: this.netLobby(),
+            state: this.mainState,
+            sub: this.gameState,
+          };
+        default:
+          return null;
+      }
+    };
   }
 }
 

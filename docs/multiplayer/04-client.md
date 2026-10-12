@@ -79,8 +79,10 @@ session.step(bundle.inputs)             // exactly one tick, identical on all cl
 
 On `c.levelStart`:
 
-1. `App` builds `players[]` from `states[]` via `fromNetPlayerState` (cash,
-   weapons, bullets, shield, frags, name) — **not** `makeStartPlayer`.
+1. `App` builds `players[]` from `states[]` via `playerFromNetState` (cash,
+   weapons, bullets, shield, cur/secondary weapon, name) — **not**
+   `makeStartPlayer` when a state is present. A `null` state (first level or an
+   unknown seat) uses the fresh start loadout.
 2. Resolve the episode/level for `settings` (already cached by the host flow) and
    `ensureLevelIngame`.
 3. Construct `GameSession` with:
@@ -127,8 +129,8 @@ Clients never recreate the socket for this.
 - `App` gains a nullable `net: NetClient | null`.
 - `App.tick()`: call `net.poll()` (drain events) before `runState()`; when online
   and ongoing, gate the sim step on a bundle (§4).
-- `App` exposes `MenuHost` net methods used by the new menus (06): `netHost`,
-  `netJoin`, `netLeave`, `netLobbyInfo`.
-- Dev hooks (dev builds only): `window.tk4Net` exposing connection state,
-  my seat, roster and the last tick, for headless/loopback verification. Extend
-  `src/globals.d.ts`.
+- `App` exposes `MenuHost` net methods used by the new menus (06):
+  `startHosting`, `joinGame`, `leaveNet`, `netLobby`, `netStatus`, `netSeat`.
+- Dev hooks: `window.tk4Net(action, arg)` exposes host/join/leave plus a state
+  snapshot (status, seat, room, main/sub state) for headless/loopback
+  verification. Typed in `src/globals.d.ts`.

@@ -8,6 +8,23 @@ Legend: 🎯 deliverable · ✅ acceptance · ⚠️ risk.
 
 ---
 
+## Status
+
+- ✅ **N1** — protocol, rooms, Bun servers (`f65fd04`).
+- ✅ **N2** — client transport + multiplayer menus/lobby (`18ca70f`).
+- ✅ **N3** — online game: per-seat mouse, single-view session, `levelStart`
+  start, lockstep stepping, statistics/shop ready barrier, match endings,
+  disconnect/host migration.
+- ⬜ **N4** — polish, docs, deployment (*in progress*).
+
+Implementation notes vs. the design docs: `levelStart` no longer carries `last`
+(clients derive it from the episode length); `states` may be `null` or contain
+per-seat `null` entries; `NetPlayerState` gained `curWeapon`/`secWeapon`; the
+lobby re-indexes seats on a leave and resyncs peers with `c.seat`; malformed
+messages are dropped rather than closing the socket.
+
+---
+
 ## N1 — Protocol, rooms, server
 
 🎯 Shared protocol types, a pure `RoomManager`, the Bun WS servers, and wiring.

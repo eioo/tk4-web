@@ -137,8 +137,17 @@ Per tick (from doc 03/04 call inventory): `CheckBurning` (`rand()%8`), `ShowStea
   seat, and the replay fixture keeps its second player non-local (never moved). There is
   therefore no per-seat parity trace yet; adding one means extending the script format and
   `simreference.h` together. Non-local players remain static on the client side by design
-  until netplay (M13); the original's network code is compiled-out dead code
+  until netplay (M13). Netplay is now greenfield lockstep (see
+  [`docs/multiplayer/`](multiplayer/README.md)): every client runs the full `SimWorld` from
+  server input bundles, and the original's network code is compiled-out dead code
   (`network.cpp` `Send`/`Available` are empty), so there is no wire format to match.
+- **Netplay determinism (M13).** Online every client must run identical worlds: the server
+  supplies the level `seed` and `shopSeed`, every seat is assigned the same full-screen
+  `drawRect`, and the netplay-only `SimWorld.perSeatMouse` feeds each seat its own mouse
+  (local play keeps the single `mouseOwner` path unchanged). `Date.now()` seeding is
+  bypassed online. `renderRng` stays cosmetic. Guarded by `src/sim/__test__/world.test.ts`
+  (two worlds, identical bundles ⇒ identical trace); full two-client verification is
+  browser-based.
 - **Deathmatch is browser-verified, not oracle-verified.** The parity oracle models the
   cooperative path; it does not model `CPlayer::RandomPlace`, the `FragText`/`SuicideText`
   `rand()` draw on a player kill, or the DM respawn, all of which consume the shared RNG.
