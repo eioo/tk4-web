@@ -32,6 +32,7 @@ Python used only while bootstrapping/verifying).
 | `music/**/*.ogg` | copy | copy (+ optional MP3 fallback) | music |
 | `help/*` | copy | copy (static help) | optional |
 | `default.ini`, `options.cfg` | config / binary | JSON (default.ini parsed at runtime; options.cfg → defaults) | data |
+| `tk.ico` | copy | copied as-is to `assets/tk.ico` | browser favicon |
 
 ## EFP decoder (must be exact)
 

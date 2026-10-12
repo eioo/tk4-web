@@ -116,7 +116,7 @@ export async function buildAssets(): Promise<void> {
   await copyAll(levs);
   await copyAll(wavs);
   await copyAll(music);
-  for (const extra of ["palette.tab", "default.ini"]) {
+  for (const extra of ["palette.tab", "default.ini", "tk.ico"]) {
     await Bun.write(new URL(extra, outDir), await Bun.file(new URL(extra, srcDir)).arrayBuffer());
   }
 
