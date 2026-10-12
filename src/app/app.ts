@@ -431,6 +431,11 @@ export class App implements MenuHost {
             return this.ingamePalette;
           case GameState.Victory:
             return this.menuData.palettes[PaletteNo.Victory];
+          case GameState.Quit:
+            // `CGameSubStateQuit::EnterState` changes no palette: the frozen
+            // frame keeps whatever palette was active (ingame, or menu from
+            // the level-info screen).
+            return this.palette;
           default:
             return this.menuData.palettes[PaletteNo.Menu];
         }
