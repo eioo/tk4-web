@@ -1,15 +1,22 @@
 /**
  * Build-time asset pipeline (docs/11-asset-pipeline.md).
  *
- * Mirrors the small, runtime-needed files from the original `tapankaikki4/data`
- * into `public/assets/` and emits a manifest. Assets are copied unchanged and
- * decoded by the TypeScript loaders at runtime, guaranteeing bit-exact parity.
+ * Mirrors the runtime-needed files from the original `tapankaikki4/data` into
+ * `public/assets/` and emits a manifest. Assets are copied unchanged and decoded
+ * by the TypeScript loaders at runtime, guaranteeing bit-exact parity.
  *
- *   bun run assets               # sprites, fonts, levels, sounds, tables
- *   bun run assets --with-music  # also copy the ~40 MB of music
+ *   bun run assets   # clone the upstream checkout if missing, then copy
+ *                    # sprites, fonts, levels, sounds, music and tables
  *
- * Deterministic: output contains no timestamps and file listings are sorted.
+ * The upstream C++ game (`suomipelit/tapankaikki4`, ignored by this repo) is
+ * cloned on first run; `bun run dev`/`bun run start` call
+ * `tools/ensure-assets.ts`, which runs this only when `public/assets/` is
+ * missing. Deterministic: output has no timestamps and listings are sorted.
  */
+
+import { existsSync } from "node:fs";
+
+import { $ } from "bun";
 
 import { decodePaletteTab } from "../src/data/color-tables";
 import { decodeEfp, isEfp } from "../src/data/efp";
@@ -17,10 +24,28 @@ import { decodeFnt } from "../src/data/font";
 import { loadLevel } from "../src/data/level";
 
 const root = new URL("../", import.meta.url);
-const srcDir = new URL("tapankaikki4/data/", root);
+const sourceDir = new URL("tapankaikki4/", root);
+const srcDir = new URL("data/", sourceDir);
 const outDir = new URL("public/assets/", root);
 const srcPath = srcDir.pathname;
-const withMusic = process.argv.includes("--with-music");
+const sourceRepo = "https://github.com/suomipelit/tapankaikki4.git";
+
+/** Clone the upstream data checkout once, so a fresh tree can build assets. */
+async function ensureSource(): Promise<void> {
+  if (existsSync(sourceDir.pathname)) {
+    if (await Bun.file(new URL("data/palette.tab", sourceDir)).exists()) return;
+    process.stderr.write(
+      `assets: ${sourceDir.pathname} exists but has no data/; remove it and retry\n`,
+    );
+    process.exit(1);
+  }
+  process.stdout.write(`assets: cloning ${sourceRepo}\n`);
+  const clone = await $`git clone --depth 1 ${sourceRepo} ${sourceDir.pathname}`.nothrow();
+  if (clone.exitCode !== 0) {
+    process.stderr.write("assets: git clone failed\n");
+    process.exit(1);
+  }
+}
 
 async function list(pattern: string): Promise<string[]> {
   const found: string[] = [];
@@ -76,7 +101,8 @@ function levelNumber(file: string): number {
   return Number(/level(\d+)\.lev$/i.exec(file)?.[1] ?? 0);
 }
 
-async function main(): Promise<void> {
+export async function buildAssets(): Promise<void> {
+  await ensureSource();
   const efps = await list("efps/*.efp");
   const pcxs = await list("efps/*.pcx");
   const fnts = await list("fnts/*.fnt");
@@ -89,7 +115,7 @@ async function main(): Promise<void> {
   await copyAll(fnts);
   await copyAll(levs);
   await copyAll(wavs);
-  if (withMusic) await copyAll(music);
+  await copyAll(music);
   for (const extra of ["palette.tab", "default.ini"]) {
     await Bun.write(new URL(extra, outDir), await Bun.file(new URL(extra, srcDir)).arrayBuffer());
   }
@@ -189,13 +215,12 @@ async function main(): Promise<void> {
   };
   await Bun.write(new URL("manifest.json", outDir), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const total =
-    sprites.length + fonts.length + levels.length + wavs.length + (withMusic ? music.length : 0);
+  const total = sprites.length + fonts.length + levels.length + wavs.length + music.length;
   process.stdout.write(
     `assets: ${sprites.length} sprites, ${fonts.length} fonts, ${levels.length} levels, ` +
-      `${wavs.length} sounds${withMusic ? `, ${music.length} music` : " (music skipped)"}; ` +
+      `${wavs.length} sounds, ${music.length} music; ` +
       `${total} files -> public/assets\n`,
   );
 }
 
-await main();
+if (import.meta.main) await buildAssets();

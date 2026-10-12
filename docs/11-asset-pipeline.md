@@ -98,8 +98,12 @@ unless needed — runtime decode keeps parity with the original's derived data.
 
 ## Build script contract
 
-- `bun run assets` (or `tools/build-assets.ts`) reads `../tapankaikki4/data` and writes
-  `public/assets/`.
+- `bun run assets` (`tools/build-assets.ts`) reads `../tapankaikki4/data` and writes
+  `public/assets/`. On a fresh tree it first clones `suomipelit/tapankaikki4` (depth 1)
+  into `tapankaikki4/`, which this repo keeps out of history; music is always included.
+- `bun run assets:ensure` (`tools/ensure-assets.ts`) runs it only when
+  `public/assets/manifest.json` is missing. `bun run dev` and `bun run start` call it
+  first, so a fresh checkout builds assets on demand.
 - Publish an `assets/manifest.json` (key → path, dims, palette refs) so the loader can
   fetch lazily (music especially, ~40 MB total).
 - Real-data checks in the script: assert palette sizes, EFPs decode fully, level

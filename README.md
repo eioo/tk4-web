@@ -21,19 +21,23 @@ No game-framework dependency. Lint/format/type-check come from the dev dependenc
 
 ```sh
 bun install
-bun run assets        # copy sprites/fonts/levels/sounds from tapankaikki4/ into public/assets
 bun run dev           # http://localhost:5173/
 ```
 
-`bun run assets --with-music` also copies the ~40 MB of music (kept out of the repo).
+`bun run dev` starts Vite (HMR) and the netplay WebSocket server in parallel, and
+fetches the game data on first run: it clones
+[`suomipelit/tapankaikki4`](https://github.com/suomipelit/tapankaikki4) into
+`tapankaikki4/` (kept out of this repo's history) and mirrors `tapankaikki4/data`
+into `public/assets/`. Later runs skip both; `bun run assets` forces a refresh.
 
 ## Production
 
 ```sh
-bun run start         # type-check + build to dist/ and host it
+bun run start         # ensure assets + type-check + build to dist/, then host it
 ```
 
-`bun run start` is `bun run build` followed by `bun run serve`. The server
+`bun run start` runs `bun run assets:ensure` (which builds `public/assets/` only if
+missing), then `bun run build` followed by `bun run serve`. The server
 (`tools/serve.ts`, built on `Bun.serve`) serves `dist/` with correct MIME types for the
 game's custom asset extensions, long-lived caching for Vite's hashed bundles, and an
 `index.html` fallback. Port and bind come from `--port`/`--host` (or `PORT`/`HOST`),
@@ -47,12 +51,11 @@ bun run serve --port 8080 --host 127.0.0.1   # host an existing dist/ without re
 
 ## Online multiplayer (development)
 
-Online play uses a Bun WebSocket server. In development the game is served by
-Vite and a standalone netplay server owns `/ws`, which Vite proxies:
+Online play uses a Bun WebSocket server. `bun run dev` runs it alongside Vite,
+which proxies `/ws` to it, so there is nothing extra to start:
 
 ```sh
-bun run net           # WebSocket server on 0.0.0.0:4174 (NET_PORT/--port)
-bun run dev           # http://localhost:5173/ — proxies /ws to the above
+bun run dev           # http://localhost:5173/ (Vite) + ws://localhost:4174/ws (netplay)
 ```
 
 In production `tools/serve.ts` serves both the static build **and** `/ws` on the
@@ -67,12 +70,15 @@ host (5-letter code) or join (enter the code). Names come from Options → Playe
 
 | Command                     | Purpose                                                             |
 | --------------------------- | ------------------------------------------------------------------- |
-| `bun run dev`               | Vite dev server with HMR (proxies `/ws` to `bun run net`)           |
+| `bun run dev`               | Ensure assets, then Vite (HMR) + netplay WS server in parallel      |
+| `bun run dev:app`           | Vite dev server only (`http://localhost:5173/`)                     |
+| `bun run dev:net`           | Netplay WebSocket server only (same as `bun run net`)               |
 | `bun run net`               | Standalone netplay WebSocket server (`--port`/`NET_PORT`, 4174)     |
 | `bun run build`             | `tsc --noEmit` + `vite build` → `dist/`                             |
-| `bun run start`             | Build, then serve `dist/` + `/ws` (production)                      |
+| `bun run start`             | Ensure assets, build, then serve `dist/` + `/ws` (production)       |
 | `bun run serve`             | Serve an existing `dist/` + `/ws` (`--port`/`--host`, default 4173) |
-| `bun run assets`            | Regenerate `public/assets` from `tapankaikki4/data`                 |
+| `bun run assets`            | Rebuild `public/assets` (clones `tapankaikki4/` if missing)         |
+| `bun run assets:ensure`     | Build `public/assets` only if it is missing                         |
 | `bun test`                  | Unit tests (Bun's runner)                                           |
 | `bun run typecheck`         | TypeScript only                                                     |
 | `bun run lint` / `lint:fix` | Lint with oxlint                                                    |

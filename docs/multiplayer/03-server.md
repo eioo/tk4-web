@@ -162,9 +162,9 @@ next level) are now accepted from the new host.
 
 ## 9. Production topology
 
-- **Dev:** `bun run net` starts `tools/net-server.ts` on `NET_PORT` (default
-  4174). Vite proxies `/ws` to it (`vite.config.ts`), so the client always uses a
-  same-origin `ws://<host>/ws` URL.
+- **Dev:** `bun run dev` runs `tools/net-server.ts` (on `NET_PORT`, default 4174)
+  alongside Vite; `bun run net` starts just the server. Vite proxies `/ws` to it
+  (`vite.config.ts`), so the client always uses a same-origin `ws://<host>/ws` URL.
 - **Prod:** `tools/serve.ts` already serves `dist/`; it gains
   `fetch → server.upgrade(req)` for `GET /ws` and the `websocket` handlers. One
   process, one origin, no extra port.

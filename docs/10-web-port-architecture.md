@@ -205,7 +205,8 @@ Boot is asynchronous: `main.ts` fetches every asset the game needs (root config,
 `palette.tab`, menu/ingame data, fonts, `manifest.json`) before starting the loop. While
 that runs, `index.html` shows a full-screen overlay (`#boot`) with a progress bar and a
 running file count; `main.ts` removes it once the first frame is on the canvas. If boot
-throws — most often because `public/assets/` is missing (`bun run assets` not run) — the
+throws — most often because `public/assets/` is missing (run `bun run assets`, or
+`bun run dev`/`bun run start`, which fetch it automatically) — the
 overlay switches to an error state showing the message and a reload button, and the
 message is mirrored to `window.tk4Error` for scripts. This replaces the original's silent
 black screen.

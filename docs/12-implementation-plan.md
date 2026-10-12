@@ -247,7 +247,7 @@ level config), stopped by the menu music when a level ends. Volumes/theme/
 reverse-stereo come from `COptionsData` (`applyAudioOptions`, invoked by the
 audio options menu's `updateAudioChanges`), and the menu/shop play the click
 sample. Effects are decoded from the merged `default.ini` at boot; music assets
-are copied by `bun run assets --with-music`.
+are copied by `bun run assets` (which clones the upstream checkout if needed).
 
 ⚠️ The parity oracle does not model `CEnemy::SoundHeard` yet, so the replay
 harness disables hearing to stay byte-comparable (docs/13); the shipped replay

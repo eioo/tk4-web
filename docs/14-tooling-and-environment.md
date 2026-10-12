@@ -22,6 +22,9 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 
 | Command | Purpose |
 |---------|---------|
+| `bun run dev` | Ensure assets, then Vite (HMR) + netplay WebSocket server in parallel |
+| `bun run assets` | Rebuild `public/assets` from `tapankaikki4/data` (clones it if missing) |
+| `bun run assets:ensure` | Build `public/assets` only if it is missing |
 | `bun run lint` | Lint (`oxlint`) |
 | `bun run lint:fix` | Lint and apply safe fixes |
 | `bun run fmt` | Format (`oxfmt`) |
@@ -30,7 +33,7 @@ Lint and format are handled by the Oxc tools, configured by `.oxlintrc.json` and
 | `bun run parity` | Build the oracles and diff every scenario trace + static frame (doc 13) |
 | `bun run perf` | Time the presentation-path CPU against its 60 fps budget (doc 13) |
 | `bun run serve` | Host an existing `dist/` build (`Bun.serve`; `--port`/`--host`, default `0.0.0.0:4173`) |
-| `bun run start` | `bun run build` then serve — the production command (doc 10) |
+| `bun run start` | Ensure assets, `bun run build`, then serve — the production command (doc 10) |
 
 ## Needed to build & run the ORIGINAL (the "reference oracle")
 
